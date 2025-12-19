@@ -1,0 +1,590 @@
+/* =====================================================
+   CPIE 触摸屏副屏专用样式
+   分辨率: 1024×600
+   主题: 亮色 / 清新风格
+   设计原则: 大字体、高对比度、触摸友好
+   ===================================================== */
+
+/* ==================== 全局样式 ==================== */
+QWidget {
+    font-family: 'Microsoft YaHei', 'SimHei', sans-serif;
+    font-size: 16px;
+    color: #2c3e50;
+    background-color: #f5f7fa;
+}
+
+/* ==================== 导航栏 ==================== */
+#secondaryNavBar {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #ffffff, stop:1 #f0f3f7);
+    border-bottom: 3px solid #3498db;
+    min-height: 60px;
+    max-height: 60px;
+}
+
+/* Logo和标题 */
+#secondaryLogoLabel {
+    color: #2c3e50;
+    font-size: 20px;
+    font-weight: bold;
+    padding: 5px 10px;
+}
+
+/* 导航按钮 */
+#secondaryNavButton {
+    background-color: #ecf0f1;
+    color: #34495e;
+    border: 2px solid #bdc3c7;
+    border-radius: 8px;
+    padding: 12px 20px;
+    font-size: 16px;
+    font-weight: 600;
+    min-width: 120px;
+    min-height: 45px;
+}
+
+#secondaryNavButton:hover {
+    background-color: #d5dbdf;
+    border-color: #95a5a6;
+}
+
+#secondaryNavButton:checked,
+#secondaryNavButton[active="true"] {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #3498db, stop:1 #2980b9);
+    color: #ffffff;
+    border-color: #2980b9;
+    font-weight: bold;
+}
+
+#secondaryNavButton:pressed {
+    background-color: #2980b9;
+}
+
+/* 时间标签 */
+#secondaryTimeLabel {
+    color: #7f8c8d;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 5px 10px;
+}
+
+/* 控制按钮 */
+#secondaryControlButton {
+    background-color: #3498db;
+    color: #ffffff;
+    border: none;
+    border-radius: 8px;
+    font-size: 18px;
+    font-weight: bold;
+    min-width: 60px;
+    min-height: 45px;
+}
+
+#secondaryControlButton:hover {
+    background-color: #2980b9;
+}
+
+#secondaryControlButton:pressed {
+    background-color: #21618c;
+}
+
+/* 关闭按钮 */
+#secondaryCloseButton {
+    background-color: #e74c3c;
+    color: #ffffff;
+    border: none;
+    border-radius: 8px;
+    font-size: 18px;
+    font-weight: bold;
+    min-width: 80px;
+    min-height: 45px;
+}
+
+#secondaryCloseButton:hover {
+    background-color: #c0392b;
+}
+
+#secondaryCloseButton:pressed {
+    background-color: #a93226;
+}
+
+/* ==================== 内容区域 ==================== */
+#secondaryContentStack {
+    background-color: #f5f7fa;
+}
+
+/* ==================== 大尺寸数据卡片 ==================== */
+#largeMetricCard {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #ffffff, stop:1 #f8f9fa);
+    border: 3px solid #e1e8ed;
+    border-radius: 10px;
+    padding: 15px;
+}
+
+#largeMetricCard[status="normal"] {
+    border-color: #27ae60;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #ffffff, stop:1 #e8f8f5);
+}
+
+#largeMetricCard[status="warning"] {
+    border-color: #f39c12;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #ffffff, stop:1 #fef5e7);
+}
+
+#largeMetricCard[status="danger"] {
+    border-color: #e74c3c;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #ffffff, stop:1 #fadbd8);
+}
+
+/* 卡片内图标 */
+QLabel#largeMetricIcon {
+    font-size: 32px;
+    color: #3498db;
+}
+
+/* 卡片标题 */
+QLabel#largeMetricTitle {
+    font-size: 20px;
+    font-weight: 600;
+    color: #34495e;
+}
+
+/* 卡片数值 */
+QLabel#largeMetricValue {
+    font-size: 64px;
+    font-weight: bold;
+    color: #2c3e50;
+}
+
+/* 卡片单位 */
+QLabel#largeMetricUnit {
+    font-size: 32px;
+    color: #7f8c8d;
+}
+
+/* 卡片提示信息 */
+QLabel#largeMetricHint {
+    font-size: 14px;
+    color: #95a5a6;
+}
+
+/* ==================== 紧凑日志组件 ==================== */
+#compactLogWidget {
+    background-color: #ffffff;
+    border: 2px solid #e1e8ed;
+    border-radius: 10px;
+    padding: 10px;
+}
+
+#compactLogTitle {
+    font-size: 18px;
+    font-weight: bold;
+    color: #2c3e50;
+    padding-bottom: 5px;
+    border-bottom: 2px solid #ecf0f1;
+}
+
+#compactLogItem {
+    font-size: 14px;
+    color: #34495e;
+    padding: 5px;
+    border-left: 3px solid transparent;
+}
+
+#compactLogItem[level="info"] {
+    border-left-color: #3498db;
+}
+
+#compactLogItem[level="success"] {
+    border-left-color: #27ae60;
+}
+
+#compactLogItem[level="warning"] {
+    border-left-color: #f39c12;
+}
+
+#compactLogItem[level="error"] {
+    border-left-color: #e74c3c;
+}
+
+/* ==================== 小型火焰查看器 ==================== */
+#miniFlameViewer {
+    background-color: #ffffff;
+    border: 2px solid #e1e8ed;
+    border-radius: 10px;
+    padding: 10px;
+}
+
+#miniFlameTitle {
+    font-size: 18px;
+    font-weight: bold;
+    color: #2c3e50;
+    padding-bottom: 5px;
+}
+
+#miniFlameImage {
+    background-color: #ecf0f1;
+    border: 2px solid #bdc3c7;
+    border-radius: 4px;
+    min-width: 380px;
+    min-height: 220px;
+}
+
+#miniFlameLength {
+    font-size: 14px;
+    color: #e74c3c;
+    font-weight: bold;
+}
+
+/* ==================== 小型温度图表 ==================== */
+#miniTempChart {
+    background-color: #ffffff;
+    border: 2px solid #e1e8ed;
+    border-radius: 10px;
+    padding: 10px;
+}
+
+#miniChartTitle {
+    font-size: 18px;
+    font-weight: bold;
+    color: #2c3e50;
+    padding-bottom: 5px;
+}
+
+#miniChartCurrentTemp {
+    font-size: 14px;
+    color: #3498db;
+    font-weight: bold;
+}
+
+/* 图表区域（PlotWidget） */
+#miniTempChart QWidget {
+    background-color: #ffffff;
+    border: 1px solid #e1e8ed;
+    border-radius: 4px;
+    min-width: 380px;
+    min-height: 220px;
+}
+
+/* ==================== 样品温度项 ==================== */
+#sampleTempItem {
+    background-color: #ffffff;
+    border: 2px solid #d5dbdf;
+    border-radius: 8px;
+    padding: 8px;
+}
+
+#sampleTempItem:hover {
+    border-color: #3498db;
+    background-color: #f0f9ff;
+}
+
+#sampleTempItem[ignited="true"] {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #ffe5e5, stop:1 #ffcccc);
+    border: 3px solid #e74c3c;
+}
+
+#sampleTempItem QLabel {
+    font-size: 16px;
+    color: #2c3e50;
+}
+
+/* 样品温度数值 - 使用属性选择器 */
+QLabel[class="temp_value"] {
+    font-size: 40px;
+    font-weight: bold;
+    color: #2c3e50;
+}
+
+#sampleTempItem[ignited="true"] QLabel[class="temp_value"] {
+    color: #e74c3c;
+}
+
+/* ==================== 进度条 ==================== */
+QProgressBar {
+    background-color: #ecf0f1;
+    border: 2px solid #bdc3c7;
+    border-radius: 6px;
+    text-align: center;
+    height: 40px;
+    font-size: 18px;
+    font-weight: bold;
+    color: #2c3e50;
+}
+
+QProgressBar::chunk {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #3498db, stop:1 #2ecc71);
+    border-radius: 4px;
+}
+
+/* ==================== 实验状态卡片 ==================== */
+#explosionStatusWidget, #ignitionStatusWidget {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #ffffff, stop:1 #f0f3f7);
+    border: 2px solid #d5dbdf;
+    border-radius: 10px;
+    padding: 12px;
+}
+
+#explosionStatusWidget QLabel, #ignitionStatusWidget QLabel {
+    font-size: 18px;
+    color: #2c3e50;
+}
+
+/* 状态标签 */
+QLabel#status_label {
+    font-size: 28px;
+    font-weight: bold;
+    color: #2c3e50;
+}
+
+/* 循环标签 */
+QLabel#cycle_label {
+    font-size: 18px;
+    color: #7f8c8d;
+}
+
+/* 样品标签 */
+QLabel#sample_label {
+    font-size: 16px;
+    color: #95a5a6;
+}
+
+/* ==================== 章节标题 ==================== */
+QLabel#section_title {
+    font-size: 24px;
+    font-weight: bold;
+    color: #2c3e50;
+}
+
+QLabel#section_subtitle {
+    font-size: 20px;
+    font-weight: 600;
+    color: #34495e;
+}
+
+/* ==================== 设备状态卡片 ==================== */
+#deviceStatusCard {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #ffffff, stop:1 #f8f9fa);
+    border: 2px solid #d5dbdf;
+    border-radius: 10px;
+    padding: 12px;
+}
+
+#deviceStatusCard[online="true"] {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #ffffff, stop:1 #e8f8f5);
+    border-color: #27ae60;
+}
+
+#deviceStatusCard[online="false"] {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #ffffff, stop:1 #ecf0f1);
+    border-color: #95a5a6;
+}
+
+#deviceStatusCard QLabel {
+    font-size: 16px;
+    color: #2c3e50;
+}
+
+/* 设备名称 */
+QLabel#device_name_label {
+    font-size: 20px;
+    font-weight: bold;
+    color: #2c3e50;
+}
+
+/* 设备数值 */
+QLabel#device_value_label {
+    font-size: 32px;
+    font-weight: bold;
+    color: #3498db;
+}
+
+/* 设备状态指示器 */
+QLabel#device_status_indicator {
+    font-size: 22px;
+    font-weight: bold;
+}
+
+/* ==================== 设备统计框 ==================== */
+#deviceStatsFrame {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #e8f8f5, stop:1 #d5f4e6);
+    border: 2px solid #27ae60;
+    border-radius: 10px;
+    padding: 15px;
+}
+
+#deviceStatsFrame QLabel {
+    font-size: 15px;
+    color: #27ae60;
+}
+
+/* ==================== 炉温卡片特殊样式 ==================== */
+QWidget[objectName="furnace_temp_card"] #largeMetricValue {
+    font-size: 72px;
+    color: #e74c3c;
+}
+
+/* ==================== 紧急停止按钮 ==================== */
+#emergencyStopButton {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #e74c3c, stop:1 #c0392b);
+    color: #ffffff;
+    font-size: 22px;
+    font-weight: bold;
+    border: 3px solid #a93226;
+    border-radius: 10px;
+    min-width: 180px;
+    min-height: 70px;
+}
+
+#emergencyStopButton:hover {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #c0392b, stop:1 #a93226);
+}
+
+#emergencyStopButton:pressed {
+    background-color: #922b21;
+}
+
+/* ==================== 滚动条样式 ==================== */
+QScrollBar:vertical {
+    background-color: #ecf0f1;
+    width: 12px;
+    border-radius: 6px;
+}
+
+QScrollBar::handle:vertical {
+    background-color: #95a5a6;
+    border-radius: 6px;
+    min-height: 30px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background-color: #7f8c8d;
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+QScrollBar:horizontal {
+    background-color: #ecf0f1;
+    height: 12px;
+    border-radius: 6px;
+}
+
+QScrollBar::handle:horizontal {
+    background-color: #95a5a6;
+    border-radius: 6px;
+    min-width: 30px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background-color: #7f8c8d;
+}
+
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {
+    width: 0px;
+}
+
+/* ==================== 工具提示 ==================== */
+QToolTip {
+    background-color: #34495e;
+    color: #ffffff;
+    border: 2px solid #2c3e50;
+    border-radius: 4px;
+    padding: 8px;
+    font-size: 14px;
+}
+
+/* ==================== QFrame 通用样式 ==================== */
+QFrame {
+    background-color: transparent;
+}
+
+/* ==================== 高对比度模式（可选） ==================== */
+/* 当需要更高对比度时，取消注释以下样式 */
+/*
+QWidget {
+    color: #000000;
+}
+
+#largeMetricValue {
+    color: #000000;
+}
+
+#secondaryNavButton {
+    color: #000000;
+}
+*/
+
+/* ==================== 触摸反馈动画 ==================== */
+/* 注意：Qt QSS不支持transition和transform属性，已移除 */
+/* 触摸反馈通过改变背景色和边框来实现 */
+QPushButton:pressed {
+    /* 通过改变背景色实现按下效果 */
+    background-color: #2980b9;
+}
+
+/* ==================== 状态指示灯样式 ==================== */
+QLabel[indicator="online"] {
+    color: #27ae60;
+}
+
+QLabel[indicator="offline"] {
+    color: #95a5a6;
+}
+
+QLabel[indicator="warning"] {
+    color: #f39c12;
+}
+
+QLabel[indicator="error"] {
+    color: #e74c3c;
+}
+
+/* ==================== 分隔线样式 ==================== */
+QFrame[frameShape="4"], /* HLine */
+QFrame[frameShape="5"]  /* VLine */
+{
+    background-color: #d5dbdf;
+    border: none;
+}
+
+/* ==================== 响应式字体（基于父容器） ==================== */
+/* 这些样式会被缩放系统自动调整 */
+
+/* ==================== 色彩方案总结 ==================== */
+/*
+主色调:    #3498db (蓝色) - 导航和强调
+辅助色:    #2ecc71 (绿色) - 正常状态
+警告色:    #f39c12 (橙色) - 警告状态
+危险色:    #e74c3c (红色) - 危险/着火状态
+文字色:    #2c3e50 (深灰) - 主要文字
+次要文字:  #7f8c8d (浅灰) - 次要文字
+背景色:    #f5f7fa (极浅灰) - 主背景
+卡片背景:  #ffffff (白色) - 卡片背景
+边框色:    #d5dbdf (浅灰) - 边框
+*/
+
+/* ==================== 打印样式（备用） ==================== */
+/* 注意：Qt QSS不支持@media媒体查询，已移除 */
+/* 如需打印功能，请在应用层面处理 */
+
+/* ==================== 结束 ==================== */
+
+

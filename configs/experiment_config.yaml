@@ -1,0 +1,203 @@
+ignition_experiment:
+  serial:
+    port: COM10
+    baudrate: 9600
+    bytesize: 8
+    parity: N
+    stopbits: 1
+    timeout: 1.0
+  devices:
+  - name: 着火点-温控仪表
+    type: yudian_controller
+    address: 4
+    enabled: true
+    poll_interval: 0.5
+    parameters:
+      stopbits: 2
+  - name: 着火点-温度模块
+    type: temperature_sensor
+    address: 5
+    enabled: true
+    poll_interval: 0.5
+    parameters:
+      num_channels: 8
+  polling:
+    enabled: true
+    default_interval: 0.5
+  logging:
+    enabled: true
+    level: INFO
+    save_to_file: false
+    log_dir: logs
+  collect_start_temperature: 200.0
+  collect_end_temperature: 500.0
+  ignition_detection:
+    enabled: true
+    post_analysis: true
+    sample_channels:
+    - 0
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    criteria:
+      temperature_rise:
+        enabled: true
+        threshold: 10.0
+        time_window: 10.0
+      absolute_temperature:
+        enabled: false
+        threshold: 600.0
+      rise_rate:
+        enabled: true
+        threshold: 0.25
+    check_interval: 0.2
+    confirmation_time: 1.0
+    tangent_method:
+      smooth_window: 11
+      smooth_order: 2
+      baseline_points: 20
+      peak_points: 10
+      min_temp_rise: 20.0
+      min_rate_increase: 2.0
+      inflection_threshold: 0.5
+      min_data_points: 50
+explosion_experiment:
+  serial:
+    port: COM13
+    baudrate: 9600
+    bytesize: 8
+    parity: N
+    stopbits: 1
+    timeout: 1.0
+  test-rounds:
+    max-rounds: 2
+    phase-rounds: 1
+  explosion-thresholds:
+    no-explosion: 25.0      # 无爆炸性上限 (mm)
+    weak-explosion: 400.0   # 弱爆炸性上限 (mm)
+    strong-explosion: 800.0 # 强爆炸性上限 (mm)
+    # 超强爆炸性：> 800.0 mm
+  devices:
+  - name: 爆炸性-压力表
+    type: pressure_sensor
+    address: 1
+    enabled: true
+    poll_interval: 0.5
+    parameters:
+      stopbits: 2
+  - name: 爆炸性-温控仪表
+    type: yudian_controller
+    address: 2
+    enabled: true
+    poll_interval: 0.5
+    parameters:
+      stopbits: 2
+  - name: 爆炸性-继电器
+    type: relay_controller
+    address: 3
+    enabled: true
+    poll_interval: 1.0
+    parameters: {}
+  polling:
+    enabled: true
+    default_interval: 0.5
+  logging:
+    enabled: true
+    level: INFO
+    save_to_file: false
+    log_dir: logs
+  relay_mapping:
+    spray_valve: 1
+    purge_valve: 2
+    vacuum_cleaner: 3
+    reserved: 4
+  image_processing:
+    flame_threshold: 128
+    pixel_scale: 10.0
+  opencv:
+    font: FONT_HERSHEY_SIMPLEX
+    font_scale: 0.5
+    text_color:
+    - 0
+    - 255
+    - 0
+    text_thickness: 2
+    bbox_color:
+    - 0
+    - 255
+    - 0
+    bbox_thickness: 1
+  sequence_steps:
+  - step: 1
+    name: 打开喷吹阀
+    action: relay_on
+    relay: spray_valve
+    delay_after: 0.0
+  - step: 2
+    name: 喷吹延时
+    action: delay
+    duration: 0.5
+  - step: 3
+    name: 关闭喷吹阀
+    action: relay_off
+    relay: spray_valve
+    delay_after: 0.0
+  - step: 4
+    name: 等待延时
+    action: delay
+    duration: 3.0
+  - step: 5
+    name: 打开吹扫阀和吸尘器
+    action: relay_multi_on
+    relays:
+    - purge_valve
+    - vacuum_cleaner
+    delay_after: 0.0
+  - step: 6
+    name: 吹扫延时
+    action: delay
+    duration: 5.0
+  - step: 7
+    name: 关闭吹扫阀和吸尘器
+    action: relay_multi_off
+    relays:
+    - purge_valve
+    - vacuum_cleaner
+    delay_after: 0.0
+  - step: 8
+    name: 检查继电器状态
+    action: verify_all_off
+    retry_count: 3
+    retry_delay: 0.5
+  camera:
+    enabled: true
+    capture_duration: 1.0
+    trigger_delay: 0.5
+  control_conditions:
+    target_temperature:
+      value: 1100.0
+      unit: ℃
+      tolerance: 2.0
+    target_pressure:
+      value: 50.0
+      unit: kPa
+      tolerance: 2.0
+ui:
+  window:
+    title: 煤粉实验控制系统
+    width: 1400
+    height: 900
+  update_interval: 500
+  chart:
+    max_points: 5000
+    update_interval: 500
+  colors:
+    background: '#2b2b2b'
+    text: '#ffffff'
+    primary: '#4a9eff'
+    success: '#4caf50'
+    warning: '#ff9800'
+    danger: '#f44336'
+    grid: '#3c3c3c'

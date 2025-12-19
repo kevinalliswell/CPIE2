@@ -1,0 +1,12 @@
+{
+    "version": "1.1.251121",
+    "author": "Shi Jinpeng/USTB",
+    "release_date": "2025-11-21",
+    "copyright": "© 2025 北京科技大学. All rights reserved.",
+    "description": "CPIE-3000A 煤粉着火点及爆炸性检测系统",
+    "contact": "shijinpeng06@126.com",
+    "website": "https://www.ustb.edu.cn",
+    "build_date": "2025-11-21",
+    "python_version": "3.8+",
+    "platforms": ["Windows", "Linux", "macOS"]
+}

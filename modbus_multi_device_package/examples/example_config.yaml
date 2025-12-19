@@ -1,0 +1,62 @@
+# Modbus多设备通信配置文件示例
+
+# 串口配置
+serial:
+  port: 'COM3'           # 串口号 (Windows: COM3, Linux: /dev/ttyUSB0)
+  baudrate: 9600         # 波特率
+  bytesize: 8            # 数据位
+  parity: 'N'            # 校验位 (N:无, E:偶, O:奇)
+  stopbits: 1            # 停止位
+  timeout: 1.0           # 超时时间(秒)
+
+# 设备配置
+devices:
+  # 智能数显压力表
+  - name: '压力表1'
+    type: 'pressure_sensor'
+    address: 1           # Modbus地址
+    enabled: true        # 是否启用
+    poll_interval: 1.0   # 轮询间隔(秒)
+    parameters: {}       # 设备特定参数
+
+  # DAM-3944A 继电器模块
+  - name: '继电器模块'
+    type: 'relay_controller'
+    address: 3
+    enabled: true
+    poll_interval: 2.0
+    parameters: {}
+
+  # DAM-3138 温度采集模块
+  - name: '温度采集模块'
+    type: 'temperature_sensor'
+    address: 2
+    enabled: true
+    poll_interval: 1.0
+    parameters:
+      num_channels: 8    # 通道数量
+
+  # 宇电AI系列温控仪表
+  - name: '温控仪表'
+    type: 'yudian_controller'
+    address: 4
+    enabled: true
+    poll_interval: 2.0
+    parameters:
+      stopbits: 2        # 该设备需要2个停止位
+
+# 轮询配置
+polling:
+  enabled: true              # 是否启用自动轮询
+  default_interval: 1.0      # 默认轮询间隔(秒)
+  error_retry_delay: 5.0     # 错误重试延时(秒)
+  max_retries: 3             # 最大重试次数
+
+# 日志配置
+logging:
+  enabled: true              # 是否启用日志
+  level: 'INFO'              # 日志级别 (DEBUG, INFO, WARNING, ERROR)
+  save_to_file: true         # 是否保存到文件
+  log_dir: 'logs'            # 日志目录
+  max_file_size_mb: 10       # 单个日志文件最大大小(MB)
+  backup_count: 5            # 日志文件备份数量

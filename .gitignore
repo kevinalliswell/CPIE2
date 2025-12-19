@@ -1,0 +1,184 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+.venv-cpie/
+.venv/
+venv/
+ENV/
+env/
+.virtualenv/
+
+# PyInstaller
+*.spec
+*.manifest
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/*.log
+src/logs/*.log
+
+# Database
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+data/*.db
+data/backups/*.db
+src/data/*.db
+
+# Experiment Data (可根据需要调整)
+data/experiments/
+data/temp_captures/
+data/flame_results/
+data/max_flame_images/
+data/analysis_images/
+temp_captures/
+src/data/
+
+# Image Files (实验图片)
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+*.tif
+*.ico
+*.webp
+!resources/**/*.png
+!resources/**/*.jpg
+!resources/**/*.ico
+!resources/generator/*.png
+!docs/**/*.png
+
+# Generated Reports
+exports/
+*.docx
+*.pdf
+!resources/templates/*.docx
+!resources/templates/*.pdf
+
+# Build and Release (完全排除)
+build/
+dist/
+release/
+*.exe
+*.dll
+*.so
+*.dylib
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# Backup Files
+backup/
+*.bak
+*.backup
+*.old
+*~
+
+# Configuration (根据实际情况选择性忽略)
+# configs/*.yaml
+# configs/*.json
+
+# User Data
+data/users.db
+
+# Test Coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Environment Variables
+.env
+.env.local
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# Package Manager
+poetry.lock
+Pipfile.lock
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Camera and Hardware
+*.raw
+*.tiff
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+

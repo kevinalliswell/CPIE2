@@ -1,0 +1,1859 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>使用帮助 - CPIE-3000A 煤粉着火点及爆炸性检测系统</title>
+    <link rel="stylesheet" href="../static/css/common.css">
+    <style>
+        /* 基础样式重置 */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #1e1e1e;
+            color: #e0e0e0;
+            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            line-height: 1.6;
+        }
+
+        .main-container {
+            background: #1e1e1e;
+            min-height: 100vh;
+        }
+
+        .help-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #2a2a2a;
+            border-radius: 8px;
+            margin-top: 10px;
+            margin-bottom: 10px;
+        }
+
+        .help-nav {
+            background: #3a3a3a;
+            border: 1px solid #555555;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 25px;
+        }
+
+        .nav-tabs {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .nav-tab {
+            padding: 10px 18px;
+            border: 1px solid #555555;
+            border-radius: 6px;
+            background: #2a2a2a;
+            color: #e0e0e0;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .nav-tab:hover {
+            background: #4a4a4a;
+            border-color: #666666;
+            color: #ffffff;
+            transform: translateY(-1px);
+        }
+
+        .nav-tab.active {
+            background: #4a90e2;
+            border-color: #4a90e2;
+            color: #ffffff;
+            font-weight: 600;
+        }
+
+        .help-content {
+            background: #2a2a2a;
+            border: 1px solid #555555;
+            border-radius: 8px;
+            padding: 30px;
+        }
+
+        .content-section {
+            display: none;
+        }
+
+        .content-section.active {
+            display: block;
+        }
+
+        .section-title {
+            color: #4a90e2;
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #555555;
+            padding-bottom: 10px;
+        }
+
+        .help-item {
+            margin-bottom: 30px;
+            background: #3a3a3a;
+            border: 1px solid #555555;
+            border-radius: 6px;
+            padding: 20px;
+        }
+
+        .help-question {
+            color: #4a90e2;
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .help-question:hover {
+            color: #ffffff;
+        }
+
+        .question-icon {
+            font-size: 14px;
+            transition: transform 0.3s ease;
+        }
+
+        .help-answer {
+            color: #e0e0e0;
+            line-height: 1.6;
+            font-size: 14px;
+            margin-left: 24px;
+        }
+
+        .help-answer.collapsed {
+            display: none;
+        }
+
+        .step-list {
+            list-style: none;
+            padding: 0;
+            margin: 10px 0;
+        }
+
+        .step-item {
+            background: #3a3a3a;
+            border: 1px solid #555555;
+            border-radius: 4px;
+            padding: 10px 15px;
+            margin-bottom: 8px;
+            position: relative;
+            padding-left: 40px;
+        }
+
+        .step-number {
+            position: absolute;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: #4a90e2;
+            color: #ffffff;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .code-block {
+            background: #1a1a1a;
+            border: 1px solid #555555;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 10px 0;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+            color: #4ecdc4;
+            overflow-x: auto;
+        }
+
+        .warning-box {
+            background: rgba(255, 193, 7, 0.1);
+            border: 1px solid #ffc107;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 10px 0;
+            color: #ffc107;
+        }
+
+        .warning-icon {
+            color: #ffc107;
+            margin-right: 8px;
+        }
+
+        .info-box {
+            background: rgba(74, 144, 226, 0.1);
+            border: 1px solid #4a90e2;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 10px 0;
+            color: #4a90e2;
+        }
+
+        .info-icon {
+            color: #4a90e2;
+            margin-right: 8px;
+        }
+
+        .parameter-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+            font-size: 13px;
+            background: #2a2a2a;
+            border: 1px solid #555555;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .parameter-table th {
+            background: #3a3a3a;
+            color: #e0e0e0;
+            padding: 12px;
+            text-align: left;
+            border: 1px solid #555555;
+            font-weight: 600;
+        }
+
+        .parameter-table td {
+            padding: 12px;
+            border: 1px solid #555555;
+            background: #2a2a2a;
+            color: #e0e0e0;
+        }
+
+        .parameter-table tr:hover {
+            background: #3a3a3a;
+        }
+
+        .shortcut-key {
+            background: rgba(74, 144, 226, 0.2);
+            border: 1px solid #4a90e2;
+            border-radius: 3px;
+            padding: 2px 6px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
+            color: #4a90e2;
+        }
+
+        .search-box {
+            margin-bottom: 20px;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid #555555;
+            border-radius: 6px;
+            background: #2a2a2a;
+            color: #e0e0e0;
+            font-size: 14px;
+            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+        }
+
+        .search-input:focus {
+            border: 2px solid #4a90e2;
+            background: #333333;
+            outline: none;
+        }
+
+        .search-input::placeholder {
+            color: #a0a0a0;
+        }
+
+        .no-results {
+            text-align: center;
+            padding: 40px;
+            color: #a0a0a0;
+            font-size: 16px;
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .nav-tabs {
+                flex-direction: column;
+            }
+
+            .nav-tab {
+                text-align: center;
+            }
+
+            .help-container {
+                padding: 10px;
+            }
+
+            .help-content {
+                padding: 20px;
+            }
+
+            .parameter-table {
+                font-size: 11px;
+            }
+
+            .parameter-table th,
+            .parameter-table td {
+                padding: 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <div class="help-container">
+            <!-- 导航标签 -->
+            <div class="help-nav">
+                <div class="nav-tabs">
+                    <div class="nav-tab active" onclick="showSection('quick-start')">
+                        🚀 快速开始
+                    </div>
+                    <div class="nav-tab" onclick="showSection('operation-guide')">
+                        📖 操作指南
+                    </div>
+                    <div class="nav-tab" onclick="showSection('experiment-config')">
+                        ⚙️ 实验配置
+                    </div>
+                    <div class="nav-tab" onclick="showSection('device-setup')">
+                        🔌 设备配置
+                    </div>
+                    <div class="nav-tab" onclick="showSection('troubleshooting')">
+                        🔧 故障排除
+                    </div>
+                    <div class="nav-tab" onclick="showSection('faq')">
+                        ❓ 常见问题
+                    </div>
+                </div>
+            </div>
+
+            <!-- 搜索框 -->
+            <div class="search-box">
+                <input type="text" class="search-input" id="searchInput" 
+                       placeholder="🔍 搜索帮助内容..." onkeyup="searchHelp()">
+            </div>
+
+            <!-- 帮助内容 -->
+            <div class="help-content">
+                <!-- 快速开始 -->
+                <div class="content-section active" id="quick-start">
+                    <h2 class="section-title">🚀 快速开始</h2>
+                    
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            第一次使用系统需要做什么？
+                        </div>
+                        <div class="help-answer">
+                            <ol class="step-list">
+                                <li class="step-item">
+                                    <span class="step-number">1</span>
+                                    检查设备连接：确保温控仪表、温度模块等设备正确连接到电脑串口（使用RS485转USB转换器）
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">2</span>
+                                    配置系统参数：进入"参数配置"页面，配置串口参数和设备地址（温控仪表地址=4，温度模块地址=5）
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">3</span>
+                                    选择实验类型：根据需求选择"爆炸性实验"或"着火点实验"页面
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">4</span>
+                                    连接设备：在实验页面点击"连接设备"按钮，等待连接成功
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">5</span>
+                                    创建实验：点击"新建实验"按钮，填写样品信息和实验参数
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">6</span>
+                                    启动实验：点击"启动实验"按钮，系统自动执行实验流程
+                                </li>
+                            </ol>
+                        </div>
+                    </div>
+
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            系统支持哪些实验标准？
+                        </div>
+                        <div class="help-answer">
+                            <p>系统支持以下国家标准实验：</p>
+                            <ul>
+                                <li><strong>GB/T 18511-2017</strong> - 煤的着火温度测定方法（着火点实验）</li>
+                                <li><strong>AQ/T 1045-2010</strong> - 煤尘爆炸性鉴定规范（爆炸性实验）</li>
+                                <li><strong>GB/T 16425-1996</strong> - 煤尘云爆炸下限浓度测定方法</li>
+                                <li><strong>GB/T 16426-1996</strong> - 煤粉云最小着火温度测定方法</li>
+                            </ul>
+                            <p><strong>实验类型说明：</strong></p>
+                            <ul>
+                                <li><strong>爆炸性实验</strong> - 在高温高压条件下（最高1100°C，0-1.0MPa）喷射煤尘，通过工业相机高速拍照捕捉火焰图像，测量火焰长度，根据可配置阈值自动评估爆炸性等级（无爆炸/弱爆炸/强爆炸）</li>
+                                <li><strong>着火点实验</strong> - 逐步升温（最高600°C），监测煤粉着火点温度，最多可同时测试6个样品，采用温度突升法、温升速率法等多种检测方法相结合实时判定，实验完成后可使用切线法进行精确后处理分析</li>
+                            </ul>
+                            <div class="info-box">
+                                <span class="info-icon">💡</span>
+                                <strong>系统特点：</strong>CPIE-3000A是专业的煤粉着火点及爆炸性检测系统，采用先进的自动化控制技术，实现对实验过程的精确控制和数据的实时采集与分析。系统主要特色包括：工业相机高速火焰图像分析、多通道温度监测、着火点实时自动检测、切线法后处理分析、可配置实验参数和判定阈值、副屏监控功能、实验报告自动生成等，为煤粉安全性能研究提供可靠的技术支撑。
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            系统的安全限制有哪些？
+                        </div>
+                        <div class="help-answer">
+                            <div class="warning-box">
+                                <span class="warning-icon">⚠️</span>
+                                <strong>安全参数限制：</strong>
+                            </div>
+                            <table class="parameter-table">
+                                <tr>
+                                    <th>参数</th>
+                                    <th>最小值</th>
+                                    <th>最大值</th>
+                                    <th>备注</th>
+                                </tr>
+                                <tr>
+                                    <td>爆炸性实验温度</td>
+                                    <td>室温</td>
+                                    <td>1100℃</td>
+                                    <td>超出范围系统会报警</td>
+                                </tr>
+                                <tr>
+                                    <td>着火点实验温度</td>
+                                    <td>室温</td>
+                                    <td>600℃</td>
+                                    <td>超出范围系统会报警</td>
+                                </tr>
+                                <tr>
+                                    <td>升温速率</td>
+                                    <td>1℃/min</td>
+                                    <td>10℃/min</td>
+                                    <td>着火点实验默认4.75℃/min</td>
+                                </tr>
+                                <tr>
+                                    <td>压力</td>
+                                    <td>0 MPa</td>
+                                    <td>1.0 MPa</td>
+                                    <td>爆炸性实验压力范围</td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 操作指南 -->
+                <div class="content-section" id="operation-guide">
+                    <h2 class="section-title">📖 操作指南</h2>
+                    
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            如何启动爆炸性实验？
+                        </div>
+                        <div class="help-answer">
+                            <ol class="step-list">
+                                <li class="step-item">
+                                    <span class="step-number">1</span>
+                                    进入"爆炸性实验"页面
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">2</span>
+                                    点击"连接设备"按钮，等待设备连接成功
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">3</span>
+                                    点击"新建实验"按钮，填写样品信息和实验参数
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">4</span>
+                                    等待温度和压力达到设定值（目标温度1100℃±2℃，目标压力50kPa±2kPa）
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">5</span>
+                                    点击"启动实验"按钮，系统自动完成每轮测试（包括喷粉、高速拍照、火焰分析、吹扫）
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">6</span>
+                                    重复点击"启动实验"完成多轮测试（推荐至少5轮，系统默认配置2轮）
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">7</span>
+                                    点击"完成实验"按钮，系统自动计算平均火焰长度并判定爆炸性等级
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">8</span>
+                                    查看实验结果，保存数据或生成报告
+                                </li>
+                            </ol>
+                            <div class="info-box">
+                                <span class="info-icon">💡</span>
+                                <strong>提示：</strong>实验过程中系统会自动控制温度、压力、喷粉和图像采集，无需手动干预。左侧监控面板会实时显示温度、压力、火焰长度等关键参数。系统支持可配置轮次测试（默认2轮，可在配置文件中调整），每轮包括喷粉、拍摄、分析、吹扫等步骤，自动完成整个实验流程。实验完成后点击"完成实验"按钮可查看实验结论（根据火焰长度阈值自动判定爆炸性等级）。
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            如何启动着火点实验？
+                        </div>
+                        <div class="help-answer">
+                            <ol class="step-list">
+                                <li class="step-item">
+                                    <span class="step-number">1</span>
+                                    进入"着火点实验"页面
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">2</span>
+                                    准备6份煤粉样品（每份约1-2g），装入样品盘
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">3</span>
+                                    将样品盘放入样品架，确保热电偶插入样品中心
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">4</span>
+                                    点击"连接设备"按钮，等待设备连接成功
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">5</span>
+                                    点击"新建实验"按钮，填写样品信息和实验参数
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">6</span>
+                                    点击"启动实验"按钮，系统自动升温并监测着火点
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">7</span>
+                                    系统自动检测每个样品的着火温度，实验完成后查看结果
+                                </li>
+                            </ol>
+                            <div class="info-box">
+                                <span class="info-icon">💡</span>
+                                <strong>提示：</strong>系统会实时监测6个样品的温度变化，采用温度突升法、温升速率法等检测方法自动判定着火点，实验完成后可使用切线法进行精确分析。实验时间较长（约1-2小时），请耐心等待。系统支持实时数据采集和可视化，可在实验过程中查看温度曲线和检测状态。实验完成后可在历史数据页面打开切线分析对话框进行更精确的着火点分析。
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            着火点检测功能是如何工作的？
+                        </div>
+                        <div class="help-answer">
+                            <p><strong>检测原理：</strong></p>
+                            <p>系统采用两种检测方法相结合的方式，按优先级顺序执行，任一方法满足条件即判定为着火点：</p>
+                            
+                            <p><strong>方法一：温度突升法（主要方法）</strong></p>
+                            <ul>
+                                <li><strong>原理：</strong>在指定时间窗口内，温度上升超过预设阈值时，判定为着火点</li>
+                                <li><strong>默认参数：</strong>温升阈值10.0°C，时间窗口10.0秒</li>
+                                <li><strong>适用场景：</strong>适用于大多数煤粉样品，是主要的检测方法</li>
+                                <li><strong>数据要求：</strong>需要至少10个历史数据点</li>
+                                <li><strong>计算公式：</strong>温升 = 当前温度 - 时间窗口前的温度</li>
+                            </ul>
+                            
+                            <p><strong>方法二：温升速率法</strong></p>
+                            <ul>
+                                <li><strong>原理：</strong>当温度上升速率超过预设阈值时，判定为着火点</li>
+                                <li><strong>默认阈值：</strong>0.25°C/秒</li>
+                                <li><strong>适用场景：</strong>适用于需要高灵敏度检测的情况，能捕捉缓慢的温升过程</li>
+                                <li><strong>数据要求：</strong>需要至少3个历史数据点</li>
+                                <li><strong>计算公式：</strong>温升速率 = (当前温度 - 3个点前的温度) / 时间间隔</li>
+                            </ul>
+                            
+                            <p><strong>方法三：切线法（后处理分析）</strong></p>
+                            <ul>
+                                <li><strong>原理：</strong>通过分析温度曲线的放热峰，使用切线法确定精确的着火点温度</li>
+                                <li><strong>默认参数：</strong>平滑窗口11点，平滑阶数2，最小温升20.0°C</li>
+                                <li><strong>适用场景：</strong>实验完成后的精确分析，可视化温度曲线特征</li>
+                                <li><strong>分析方法：</strong>绘制基线切线和峰值切线，交点即为着火点温度</li>
+                                <li><strong>使用方式：</strong>在历史数据详情页或实验完成后打开切线分析对话框</li>
+                            </ul>
+                            
+                            <p><strong>检测流程：</strong></p>
+                            <ol class="step-list">
+                                <li class="step-item">
+                                    <span class="step-number">1</span>
+                                    系统以500ms间隔采集温度数据，存储到历史缓存（最多200个点）
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">2</span>
+                                    系统以200ms间隔执行检测算法，依次检查三种检测方法
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">3</span>
+                                    检测到着火点后，更新UI显示（温度标签变为红色）、记录日志、保存数据库
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">4</span>
+                                    已检测的通道不再重复检测，其他通道继续监测
+                                </li>
+                            </ol>
+                            
+                            <div class="info-box">
+                                <span class="info-icon">💡</span>
+                                <strong>参数调整建议：</strong>
+                                <ul>
+                                    <li><strong>温度突升阈值：</strong>低挥发性煤8-12°C，高挥发性煤10-15°C（时间窗口10秒）</li>
+                                    <li><strong>时间窗口：</strong>升温速率4.75°C/min建议5-15秒，可根据实际情况调整</li>
+                                    <li><strong>温升速率阈值：</strong>一般情况0.2-0.5°C/秒，快速着火0.5-1.0°C/秒</li>
+                                    <li><strong>切线法：</strong>建议在实验完成后使用切线分析功能进行精确分析</li>
+                                </ul>
+                            </div>
+                            
+                            <div class="warning-box">
+                                <span class="warning-icon">⚠️</span>
+                                <strong>注意事项：</strong>检测参数需要根据实际样品特性进行调整。不同煤粉样品的着火特性差异较大，建议根据实验经验优化参数设置。
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            如何查看实验数据？
+                        </div>
+                        <div class="help-answer">
+                            <ol class="step-list">
+                                <li class="step-item">
+                                    <span class="step-number">1</span>
+                                    在实验页面实时查看：温度曲线、压力变化、火焰长度等实时数据
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">2</span>
+                                    进入"历史数据"页面查询历史实验记录
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">3</span>
+                                    设置查询条件（日期范围、实验类型、样品名称等）筛选数据
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">4</span>
+                                    点击"导出数据"按钮导出Excel或CSV格式数据
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">5</span>
+                                    点击"生成报告"按钮创建HTML格式的实验报告
+                                </li>
+                            </ol>
+                            <div class="info-box">
+                                <span class="info-icon">💡</span>
+                                <strong>数据管理：</strong>系统自动保存所有实验数据到数据库，支持实时数据查看、历史数据查询、数据导出和报告生成功能，确保实验数据的完整性和可追溯性。
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            如何导出实验数据？
+                        </div>
+                        <div class="help-answer">
+                            <p><strong>方法一：导出当前实验数据</strong></p>
+                            <ol class="step-list">
+                                <li class="step-item">
+                                    <span class="step-number">1</span>
+                                    在主界面右侧控制面板点击"保存数据"
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">2</span>
+                                    系统自动保存到数据库
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">3</span>
+                                    可在历史数据页面查看和导出
+                                </li>
+                            </ol>
+                            
+                            <p><strong>方法二：导出历史数据</strong></p>
+                            <ol class="step-list">
+                                <li class="step-item">
+                                    <span class="step-number">1</span>
+                                    进入"历史数据"页面
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">2</span>
+                                    设置查询条件筛选数据
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">3</span>
+                                    点击"导出数据"按钮选择格式
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">4</span>
+                                    点击"生成报告"创建HTML报告
+                                </li>
+                            </ol>
+                            
+                            <div class="info-box">
+                                <span class="info-icon">💡</span>
+                                <strong>数据管理：</strong>系统支持实时数据保存、历史数据查询、数据导出和报告生成功能，确保实验数据的完整性和可追溯性。
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            如何使用切线法分析着火点？
+                        </div>
+                        <div class="help-answer">
+                            <p><strong>切线法分析功能：</strong></p>
+                            <p>切线法是一种通过分析温度曲线的放热峰来精确确定着火点温度的后处理方法。系统提供了可视化的切线分析对话框，可以直观地观察温度曲线特征并确定着火点。</p>
+                            
+                            <p><strong>使用步骤：</strong></p>
+                            <ol class="step-list">
+                                <li class="step-item">
+                                    <span class="step-number">1</span>
+                                    完成着火点实验后，进入"历史数据"页面
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">2</span>
+                                    查询并选择要分析的实验记录
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">3</span>
+                                    在实验详情卡中点击"切线分析"按钮
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">4</span>
+                                    在切线分析对话框中选择要分析的样品通道
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">5</span>
+                                    系统自动绘制温度曲线、平滑曲线、基线切线和峰值切线
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">6</span>
+                                    查看切线交点，即为精确的着火点温度
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">7</span>
+                                    可以调整平滑参数重新分析，或保存分析图像
+                                </li>
+                            </ol>
+                            
+                            <p><strong>切线法参数：</strong></p>
+                            <table class="parameter-table">
+                                <tr>
+                                    <th>参数名称</th>
+                                    <th>默认值</th>
+                                    <th>说明</th>
+                                </tr>
+                                <tr>
+                                    <td>平滑窗口</td>
+                                    <td>11点</td>
+                                    <td>Savitzky-Golay滤波器的窗口大小</td>
+                                </tr>
+                                <tr>
+                                    <td>平滑阶数</td>
+                                    <td>2</td>
+                                    <td>多项式拟合的阶数</td>
+                                </tr>
+                                <tr>
+                                    <td>基线点数</td>
+                                    <td>20</td>
+                                    <td>用于计算基线切线的点数</td>
+                                </tr>
+                                <tr>
+                                    <td>峰值点数</td>
+                                    <td>10</td>
+                                    <td>用于计算峰值切线的点数</td>
+                                </tr>
+                                <tr>
+                                    <td>最小温升</td>
+                                    <td>20.0°C</td>
+                                    <td>检测放热峰的最小温升要求</td>
+                                </tr>
+                            </table>
+                            
+                            <div class="info-box">
+                                <span class="info-icon">💡</span>
+                                <strong>优势：</strong>切线法能够更精确地确定着火点温度，特别适用于温度变化不明显或需要精确分析的情况。通过可视化的曲线分析，可以直观地观察煤粉的着火过程特征。
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            系统有哪些主要功能页面？
+                        </div>
+                        <div class="help-answer">
+                            <p>CPIE-3000A系统包含以下主要功能页面：</p>
+                            <table class="parameter-table">
+                                <tr>
+                                    <th>页面名称</th>
+                                    <th>主要功能</th>
+                                    <th>说明</th>
+                                </tr>
+                                <tr>
+                                    <td>主页</td>
+                                    <td>系统概览</td>
+                                    <td>显示系统欢迎信息和版本信息</td>
+                                </tr>
+                                <tr>
+                                    <td>爆炸性实验</td>
+                                    <td>爆炸性检测</td>
+                                    <td>进行煤粉爆炸性实验，测量火焰长度，评估爆炸性等级</td>
+                                </tr>
+                                <tr>
+                                    <td>着火点实验</td>
+                                    <td>着火点检测</td>
+                                    <td>进行煤粉着火点温度测试，最多可同时测试6个样品</td>
+                                </tr>
+                                <tr>
+                                    <td>历史数据</td>
+                                    <td>数据查询与分析</td>
+                                    <td>查询历史实验数据，生成报告和分析结果，支持切线法后处理分析</td>
+                                </tr>
+                                <tr>
+                                    <td>参数配置</td>
+                                    <td>系统参数配置</td>
+                                    <td>配置实验参数、设备参数和通讯设置</td>
+                                </tr>
+                                <tr>
+                                    <td>帮助</td>
+                                    <td>使用说明</td>
+                                    <td>系统使用帮助和故障排除指南</td>
+                                </tr>
+                                <tr>
+                                    <td>关于</td>
+                                    <td>系统信息</td>
+                                    <td>显示系统版本、作者和联系信息</td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            常用快捷键有哪些？
+                        </div>
+                        <div class="help-answer">
+                            <table class="parameter-table">
+                                <tr>
+                                    <th>快捷键</th>
+                                    <th>功能</th>
+                                    <th>说明</th>
+                                </tr>
+                                <tr>
+                                    <td><span class="shortcut-key">F1</span></td>
+                                    <td>打开帮助</td>
+                                    <td>快速打开帮助页面</td>
+                                </tr>
+                                <tr>
+                                    <td><span class="shortcut-key">F5</span></td>
+                                    <td>刷新页面</td>
+                                    <td>刷新当前页面数据</td>
+                                </tr>
+                                <tr>
+                                    <td><span class="shortcut-key">Ctrl+S</span></td>
+                                    <td>保存数据</td>
+                                    <td>保存当前实验数据</td>
+                                </tr>
+                                <tr>
+                                    <td><span class="shortcut-key">Ctrl+R</span></td>
+                                    <td>刷新数据</td>
+                                    <td>在历史数据页面刷新实验列表</td>
+                                </tr>
+                                <tr>
+                                    <td><span class="shortcut-key">F11</span></td>
+                                    <td>全屏/退出全屏</td>
+                                    <td>切换全屏显示模式</td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 实验配置 -->
+                <div class="content-section" id="experiment-config">
+                    <h2 class="section-title">⚙️ 实验配置</h2>
+                    
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            如何配置爆炸性实验参数？
+                        </div>
+                        <div class="help-answer">
+                            <ol class="step-list">
+                                <li class="step-item">
+                                    <span class="step-number">1</span>
+                                    进入"参数配置"页面，选择"爆炸性实验参数"标签页
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">2</span>
+                                    配置串口参数：端口号（默认COM2）、波特率（默认9600）、超时时间等
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">3</span>
+                                    配置相机参数：
+                                    <ul>
+                                        <li><strong>启用相机：</strong>是否启用相机拍摄功能</li>
+                                        <li><strong>拍摄时长：</strong>默认1.0秒</li>
+                                        <li><strong>触发延时：</strong>默认0.5秒</li>
+                                    </ul>
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">4</span>
+                                    配置时序参数：
+                                    <ul>
+                                        <li><strong>喷吹延时：</strong>默认0.5秒（喷粉持续时间）</li>
+                                        <li><strong>等待延时：</strong>默认3.0秒（等待火焰稳定时间）</li>
+                                        <li><strong>吹扫延时：</strong>默认5.0秒（吹扫和吸尘时间）</li>
+                                    </ul>
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">5</span>
+                                    配置实验条件和判定标准（需在配置文件中手动编辑）：
+                                    <ul>
+                                        <li><strong>目标温度：</strong>默认1100.0℃，容差±2.0℃</li>
+                                        <li><strong>目标压力：</strong>默认50.0kPa，容差±2.0kPa</li>
+                                        <li><strong>无爆炸阈值：</strong>火焰长度 &lt; 25.0mm</li>
+                                        <li><strong>弱爆炸阈值：</strong>火焰长度 25.0-400.0mm</li>
+                                        <li><strong>强爆炸阈值：</strong>火焰长度 &gt; 400.0mm</li>
+                                    </ul>
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">6</span>
+                                    点击"保存配置"按钮保存设置
+                                </li>
+                            </ol>
+                            <div class="info-box">
+                                <span class="info-icon">💡</span>
+                                <strong>提示：</strong>实验条件参数（目标温度、目标压力）和爆炸性判定阈值需要在配置文件（configs/experiment_config.yaml）中手动编辑。系统会在实验过程中自动控制温度和压力，使其达到目标值并在容差范围内保持稳定。完成实验后，系统会根据平均火焰长度自动判定爆炸性等级。
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            如何配置着火点实验参数？
+                        </div>
+                        <div class="help-answer">
+                            <ol class="step-list">
+                                <li class="step-item">
+                                    <span class="step-number">1</span>
+                                    进入"参数配置"页面，选择"着火点实验参数"标签页
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">2</span>
+                                    配置串口参数：端口号（默认COM1）、波特率（默认9600）、超时时间等
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">3</span>
+                                    配置着火点判断参数：
+                                    <ul>
+                                        <li><strong>温度突升法：</strong>温升阈值（默认50.0℃）、时间窗口（默认2.0秒）</li>
+                                        <li><strong>温升速率法：</strong>速率阈值（默认30.0℃/秒）</li>
+                                        <li><strong>检测参数：</strong>检测间隔（默认0.2秒）、确认时间（默认1.0秒）</li>
+                                    </ul>
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">4</span>
+                                    配置数据采集参数：
+                                    <ul>
+                                        <li><strong>采集起始温度：</strong>默认200.0℃，低于此温度不采集数据到数据库</li>
+                                        <li><strong>采集结束温度：</strong>默认500.0℃，高于此温度停止采集（可配置）</li>
+                                        <li><strong>样品通道映射：</strong>配置6个样品对应的温度模块通道（默认CH0-CH5）</li>
+                                    </ul>
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">5</span>
+                                    点击"保存配置"按钮保存设置
+                                </li>
+                            </ol>
+                            
+                            <p><strong>参数说明：</strong></p>
+                            <table class="parameter-table">
+                                <tr>
+                                    <th>参数名称</th>
+                                    <th>默认值</th>
+                                    <th>说明</th>
+                                    <th>调整建议</th>
+                                </tr>
+                                <tr>
+                                    <td>温度突升阈值</td>
+                                    <td>10.0°C</td>
+                                    <td>时间窗口内的温升阈值</td>
+                                    <td>低挥发性煤8-12°C，高挥发性煤10-15°C</td>
+                                </tr>
+                                <tr>
+                                    <td>时间窗口</td>
+                                    <td>10.0秒</td>
+                                    <td>计算温升的时间范围</td>
+                                    <td>根据升温速率调整，4.75°C/min建议5-15秒</td>
+                                </tr>
+                                <tr>
+                                    <td>温升速率阈值</td>
+                                    <td>0.25°C/秒</td>
+                                    <td>温度上升速率阈值</td>
+                                    <td>一般情况0.2-0.5°C/秒，快速着火0.5-1.0°C/秒</td>
+                                </tr>
+                                <tr>
+                                    <td>检测间隔</td>
+                                    <td>0.2秒</td>
+                                    <td>检测算法执行间隔</td>
+                                    <td>建议0.2-0.5秒，过小会增加CPU负担</td>
+                                </tr>
+                                <tr>
+                                    <td>采集起始温度</td>
+                                    <td>200.0°C</td>
+                                    <td>开始采集数据到数据库的温度</td>
+                                    <td>可根据需要调整，避免无效数据</td>
+                                </tr>
+                                <tr>
+                                    <td>采集结束温度</td>
+                                    <td>500.0°C</td>
+                                    <td>停止采集数据的温度上限</td>
+                                    <td>可根据样品特性调整，一般设为450-550°C</td>
+                                </tr>
+                            </table>
+                            
+                            <div class="info-box">
+                                <span class="info-icon">💡</span>
+                                <strong>提示：</strong>着火点检测参数影响实验结果的准确性，建议根据实际样品特性调整阈值。系统支持6个通道同时监测，采用多种检测方法相结合，确保检测结果的可靠性。实验完成后可使用切线法分析功能进行更精确的着火点判定。
+                            </div>
+                            
+                            <div class="warning-box">
+                                <span class="warning-icon">⚠️</span>
+                                <strong>注意：</strong>不同煤粉样品的着火特性差异较大，建议根据样品类型和实验经验调整检测参数，以获得更准确的检测结果。修改参数后需要重启实验才能生效。
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            爆炸性实验的判定标准是什么？
+                        </div>
+                        <div class="help-answer">
+                            <p><strong>爆炸性等级判定：</strong></p>
+                            <p>系统根据多轮实验的平均火焰长度自动判定煤粉的爆炸性等级。判定标准可在配置文件中调整。</p>
+                            
+                            <table class="parameter-table">
+                                <tr>
+                                    <th>等级</th>
+                                    <th>火焰长度范围</th>
+                                    <th>爆炸性描述</th>
+                                    <th>安全建议</th>
+                                </tr>
+                                <tr>
+                                    <td>无爆炸</td>
+                                    <td>&lt; 25.0 mm</td>
+                                    <td>煤粉无明显爆炸性</td>
+                                    <td>煤粉相对安全，但仍需注意防尘措施</td>
+                                </tr>
+                                <tr>
+                                    <td>弱爆炸</td>
+                                    <td>25.0 - 400.0 mm</td>
+                                    <td>煤粉具有一定爆炸性</td>
+                                    <td>需要采取防爆措施，加强通风</td>
+                                </tr>
+                                <tr>
+                                    <td>强爆炸</td>
+                                    <td>&gt; 400.0 mm</td>
+                                    <td>煤粉爆炸性强</td>
+                                    <td>高危煤粉，必须严格执行防爆规程</td>
+                                </tr>
+                            </table>
+                            
+                            <p><strong>实验流程说明：</strong></p>
+                            <ol class="step-list">
+                                <li class="step-item">
+                                    <span class="step-number">1</span>
+                                    系统预热至目标温度（1100℃）和压力（50kPa）
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">2</span>
+                                    每轮实验包括：打开喷吹阀 → 高速拍照 → 关闭喷吹阀 → 等待 → 吹扫清理
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">3</span>
+                                    系统自动分析火焰图像，计算最大火焰长度
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">4</span>
+                                    完成多轮测试后，计算平均火焰长度
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">5</span>
+                                    根据平均火焰长度判定爆炸性等级
+                                </li>
+                            </ol>
+                            
+                            <div class="warning-box">
+                                <span class="warning-icon">⚠️</span>
+                                <strong>注意：</strong>判定阈值可根据实际需求在配置文件（configs/experiment_config.yaml）中修改explosion-thresholds参数。系统默认配置支持2轮测试，建议实际使用时进行至少5轮测试以提高结果可靠性。
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            配置文件保存在哪里？
+                        </div>
+                        <div class="help-answer">
+                            <p><strong>配置文件位置：</strong></p>
+                            <div class="code-block">
+                                configs/experiment_config.yaml
+                            </div>
+                            
+                            <p><strong>配置文件结构：</strong></p>
+                            <ul>
+                                <li><strong>ignition_experiment：</strong>着火点实验配置
+                                    <ul>
+                                        <li>serial：串口配置（端口、波特率、超时等）</li>
+                                        <li>devices：设备配置（温控仪表、温度模块地址等）</li>
+                                        <li>collect_start_temperature：数据采集起始温度（默认200℃）</li>
+                                        <li>collect_end_temperature：数据采集结束温度（默认500℃）</li>
+                                        <li>ignition_detection：着火点检测参数（温度突升法、温升速率法、切线法等）</li>
+                                        <li>tangent_method：切线法分析参数（平滑窗口、基线点数、峰值点数等）</li>
+                                    </ul>
+                                </li>
+                                <li><strong>explosion_experiment：</strong>爆炸性实验配置
+                                    <ul>
+                                        <li>serial：串口配置（端口、波特率、超时等）</li>
+                                        <li>devices：设备配置（压力表、温控仪表、继电器地址等）</li>
+                                        <li>test-rounds：轮次配置（最大轮次、阶段轮次）</li>
+                                        <li>explosion-thresholds：爆炸性判定阈值（无爆炸、弱爆炸、强爆炸）</li>
+                                        <li>camera：相机配置（拍摄时长、触发延时等）</li>
+                                        <li>sequence_steps：时序步骤配置（喷吹、等待、吹扫等延时）</li>
+                                        <li>control_conditions：实验条件配置（目标温度1100.0℃±2.0℃，目标压力50.0kPa±2.0kPa）</li>
+                                    </ul>
+                                </li>
+                                <li><strong>ui：</strong>界面显示配置（更新间隔、图表参数等）</li>
+                            </ul>
+                            
+                            <div class="warning-box">
+                                <span class="warning-icon">⚠️</span>
+                                <strong>注意：</strong>配置文件采用YAML格式，大部分参数可通过系统"参数配置"页面进行编辑。部分高级参数（如实验条件、时序步骤、爆炸性判定阈值）需要在配置文件中手动编辑。修改配置后建议备份原文件。串口号和设备地址可通过界面配置。
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 设备配置 -->
+                <div class="content-section" id="device-setup">
+                    <h2 class="section-title">🔌 设备配置</h2>
+                    
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            如何配置设备连接？
+                        </div>
+                        <div class="help-answer">
+                            <ol class="step-list">
+                                <li class="step-item">
+                                    <span class="step-number">1</span>
+                                    进入"参数配置"页面
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">2</span>
+                                    选择对应的实验类型标签页（爆炸性实验或着火点实验）
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">3</span>
+                                    在"串口配置"区域设置串口参数（端口号、波特率、数据位、停止位、校验位）
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">4</span>
+                                    在"设备配置"区域设置设备地址和参数
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">5</span>
+                                    点击"保存配置"保存设置
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">6</span>
+                                    在实验页面点击"连接设备"按钮测试连接
+                                </li>
+                            </ol>
+                            <div class="info-box">
+                                <span class="info-icon">💡</span>
+                                <strong>提示：</strong>设备连接成功后，实验页面的"连接设备"按钮会变为禁用状态，"新建实验"按钮会变为可用状态。
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            默认串口参数是什么？
+                        </div>
+                        <div class="help-answer">
+                            <p><strong>着火点实验默认参数：</strong></p>
+                            <table class="parameter-table">
+                                <tr>
+                                    <th>设备</th>
+                                    <th>串口</th>
+                                    <th>波特率</th>
+                                    <th>数据位</th>
+                                    <th>停止位</th>
+                                    <th>校验位</th>
+                                    <th>设备地址</th>
+                                </tr>
+                                <tr>
+                                    <td>着火点-温控仪表</td>
+                                    <td>COM1</td>
+                                    <td>9600</td>
+                                    <td>8</td>
+                                    <td>2</td>
+                                    <td>N</td>
+                                    <td>4</td>
+                                </tr>
+                                <tr>
+                                    <td>着火点-温度模块</td>
+                                    <td>COM1</td>
+                                    <td>9600</td>
+                                    <td>8</td>
+                                    <td>1</td>
+                                    <td>N</td>
+                                    <td>5</td>
+                                </tr>
+                            </table>
+                            <div class="info-box">
+                                <span class="info-icon">💡</span>
+                                <strong>注意：</strong>温控仪表和温度模块共享串口，通过Modbus RTU协议进行通信，使用不同的设备地址（4和5）进行区分。系统支持8通道温度监测（CH0-CH7），其中CH0-CH5用于样品温度监测。串口号可在配置文件中修改，实际使用时请根据设备管理器中的端口号进行配置。
+                            </div>
+                            
+                            <p><strong>爆炸性实验默认参数：</strong></p>
+                            <table class="parameter-table">
+                                <tr>
+                                    <th>设备</th>
+                                    <th>串口</th>
+                                    <th>波特率</th>
+                                    <th>数据位</th>
+                                    <th>停止位</th>
+                                    <th>校验位</th>
+                                    <th>设备地址</th>
+                                </tr>
+                                <tr>
+                                    <td>爆炸性-压力表</td>
+                                    <td>COM2</td>
+                                    <td>9600</td>
+                                    <td>8</td>
+                                    <td>2</td>
+                                    <td>N</td>
+                                    <td>1</td>
+                                </tr>
+                                <tr>
+                                    <td>爆炸性-温控仪表</td>
+                                    <td>COM2</td>
+                                    <td>9600</td>
+                                    <td>8</td>
+                                    <td>2</td>
+                                    <td>N</td>
+                                    <td>2</td>
+                                </tr>
+                                <tr>
+                                    <td>爆炸性-继电器</td>
+                                    <td>COM2</td>   
+                                    <td>9600</td>
+                                    <td>8</td>
+                                    <td>1</td>
+                                    <td>N</td>
+                                    <td>3</td>
+                                </tr>
+                            </table>
+                            <div class="info-box">
+                                <span class="info-icon">💡</span>
+                                <strong>注意：</strong>压力表、温控仪表和继电器共享串口，通过Modbus RTU协议进行通信，使用不同的设备地址（1、2、3）进行区分。继电器控制器用于控制喷吹阀、吹扫阀和吸尘器等执行机构。串口号可在配置文件中修改，实际使用时请根据设备管理器中的端口号进行配置。
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            设备连接失败怎么办？
+                        </div>
+                        <div class="help-answer">
+                            <ol class="step-list">
+                                <li class="step-item">
+                                    <span class="step-number">1</span>
+                                    检查设备电源是否正常开启
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">2</span>
+                                    确认串口线连接是否牢固（使用RS232转RS485转换器）
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">3</span>
+                                    在Windows设备管理器中查看串口是否正常识别（查看实际COM端口号）
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">4</span>
+                                    检查串口参数配置是否正确（波特率、数据位、停止位、校验位）
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">5</span>
+                                    检查设备地址设置是否正确（爆炸性实验：压力表地址=1，温控仪表地址=2，继电器地址=3；着火点实验：温控仪表地址=4，温度模块地址=5）
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">6</span>
+                                    尝试更换串口或重启电脑和设备
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">7</span>
+                                    检查是否有其他程序占用串口
+                                </li>
+                            </ol>
+                            <div class="warning-box">
+                                <span class="warning-icon">⚠️</span>
+                                <strong>注意：</strong>如果串口被其他程序占用，需要先关闭占用程序。可以使用串口调试工具（如串口助手）测试串口通讯是否正常。
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 故障排除 -->
+                <div class="content-section" id="troubleshooting">
+                    <h2 class="section-title">🔧 故障排除</h2>
+                    
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            实验过程中设备断开连接怎么办？
+                        </div>
+                        <div class="help-answer">
+                            <div class="warning-box">
+                                <span class="warning-icon">⚠️</span>
+                                <strong>紧急处理：</strong>立即停止实验，检查设备安全状态
+                            </div>
+                            <ol class="step-list">
+                                <li class="step-item">
+                                    <span class="step-number">1</span>
+                                    点击"停止实验"按钮停止当前实验
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">2</span>
+                                    检查设备电源和串口连接
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">3</span>
+                                    保存已有实验数据（如果系统未自动保存）
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">4</span>
+                                    重新连接设备
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">5</span>
+                                    检查温度是否在安全范围内
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">6</span>
+                                    排除故障后重新启动实验
+                                </li>
+                            </ol>
+                        </div>
+                    </div>
+
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            实验过程中突然停止怎么办？
+                        </div>
+                        <div class="help-answer">
+                            <div class="warning-box">
+                                <span class="warning-icon">⚠️</span>
+                                <strong>紧急处理：</strong>立即检查设备安全状态
+                            </div>
+                            <ol class="step-list">
+                                <li class="step-item">
+                                    <span class="step-number">1</span>
+                                    查看系统日志确定停止原因
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">2</span>
+                                    检查设备连接状态
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">3</span>
+                                    确认温度是否超出安全范围
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">4</span>
+                                    保存已有实验数据
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">5</span>
+                                    排除故障后重新启动实验
+                                </li>
+                            </ol>
+                        </div>
+                    </div>
+
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            温度显示异常怎么办？
+                        </div>
+                        <div class="help-answer">
+                            <ol class="step-list">
+                                <li class="step-item">
+                                    <span class="step-number">1</span>
+                                    检查温控仪表通讯是否正常（查看连接状态）
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">2</span>
+                                    检查温度模块通讯是否正常（查看CH0-CH7通道数据）
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">3</span>
+                                    检查热电偶是否损坏或接触不良
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">4</span>
+                                    确认热电偶类型和温度范围是否匹配
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">5</span>
+                                    检查样品架和热电偶安装位置是否正确
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">6</span>
+                                    联系技术支持进行校准或维护
+                                </li>
+                            </ol>
+                        </div>
+                    </div>
+
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            着火点检测不准确怎么办？
+                        </div>
+                        <div class="help-answer">
+                            <p><strong>问题诊断步骤：</strong></p>
+                            <ol class="step-list">
+                                <li class="step-item">
+                                    <span class="step-number">1</span>
+                                    检查着火点检测参数设置是否合理
+                                    <ul>
+                                        <li>温度突升阈值：低挥发性煤建议8-12°C，高挥发性煤建议10-15°C（时间窗口10秒）</li>
+                                        <li>温升速率阈值：一般情况建议0.2-0.5°C/秒，快速着火0.5-1.0°C/秒</li>
+                                        <li>时间窗口：根据升温速率调整，4.75°C/min建议5-15秒</li>
+                                    </ul>
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">2</span>
+                                    确认样品准备是否规范
+                                    <ul>
+                                        <li>样品是否均匀铺平，厚度是否一致（建议2-3mm）</li>
+                                        <li>样品是否干燥，无受潮或变质</li>
+                                        <li>样品量是否合适（每份约1-2g）</li>
+                                    </ul>
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">3</span>
+                                    检查热电偶安装是否正确
+                                    <ul>
+                                        <li>热电偶是否插入样品中心</li>
+                                        <li>热电偶不能接触样品盘底</li>
+                                        <li>热电偶是否损坏或接触不良</li>
+                                    </ul>
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">4</span>
+                                    确认实验条件设置是否合适
+                                    <ul>
+                                        <li>升温速率设置是否合适（默认4.75℃/min）</li>
+                                        <li>检测间隔是否合理（默认0.2秒）</li>
+                                        <li>数据采集起始温度是否合适（默认200°C）</li>
+                                    </ul>
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">5</span>
+                                    检查设备状态
+                                    <ul>
+                                        <li>温度模块通讯是否正常</li>
+                                        <li>温度数据是否正常更新</li>
+                                        <li>设备连接是否稳定</li>
+                                    </ul>
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">6</span>
+                                    根据实际样品特性调整检测阈值参数，或使用切线法进行后处理分析
+                                    <ul>
+                                        <li>参考参数调整建议表</li>
+                                        <li>根据历史实验数据优化参数</li>
+                                        <li>实验完成后可使用切线分析功能进行精确判定</li>
+                                        <li>必要时联系技术支持</li>
+                                    </ul>
+                                </li>
+                            </ol>
+                            
+                            <p><strong>常见问题及解决方案：</strong></p>
+                            <table class="parameter-table">
+                                <tr>
+                                    <th>问题现象</th>
+                                    <th>可能原因</th>
+                                    <th>解决方案</th>
+                                </tr>
+                                <tr>
+                                    <td>检测延迟</td>
+                                    <td>检测阈值过高或时间窗口过大</td>
+                                    <td>降低检测阈值，减小时间窗口，减小检测间隔</td>
+                                </tr>
+                                <tr>
+                                    <td>误判（未着火时判定为着火）</td>
+                                    <td>检测阈值过低或温度波动</td>
+                                    <td>提高检测阈值，增加时间窗口，检查热电偶接触</td>
+                                </tr>
+                                <tr>
+                                    <td>检测不到着火点</td>
+                                    <td>阈值过高或样品未着火</td>
+                                    <td>降低检测阈值，检查样品状态，确认样品是否真的着火</td>
+                                </tr>
+                                <tr>
+                                    <td>检测结果不稳定</td>
+                                    <td>样品不均匀或热电偶接触不良</td>
+                                    <td>重新准备样品，检查热电偶安装，确认样品厚度一致</td>
+                                </tr>
+                            </table>
+                            
+                            <div class="info-box">
+                                <span class="info-icon">💡</span>
+                                <strong>优化建议：</strong>
+                                <ul>
+                                    <li>系统采用多种检测方法相结合，建议同时启用温度突升法和温升速率法以提高准确性</li>
+                                    <li>不同煤粉样品的着火特性差异较大，建议根据样品类型和实验经验调整检测参数</li>
+                                    <li>实验完成后，建议使用切线法分析功能进行精确的着火点判定，可以直观地观察温度曲线特征</li>
+                                    <li>建议保存历史实验数据，分析不同样品的着火特性，优化参数设置</li>
+                                    <li>如遇到问题，可查看实验日志了解详细的检测过程</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 常见问题 -->
+                <div class="content-section" id="faq">
+                    <h2 class="section-title">❓ 常见问题</h2>
+                    
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            系统支持多少个用户同时使用？
+                        </div>
+                        <div class="help-answer">
+                            <p>系统采用单机版设计，同一时间只支持一个用户操作。这是为了确保实验的安全性和数据的一致性。</p>
+                        </div>
+                    </div>
+
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            实验数据保存在哪里？
+                        </div>
+                        <div class="help-answer">
+                            <p>实验数据保存在系统数据库中，默认位置为：</p>
+                            <div class="code-block">
+                                data/explosion_experiment.db  (爆炸性实验数据)
+                                data/ignition_experiment.db   (着火点实验数据)
+                            </div>
+                            <p>系统还支持以下数据存储方式：</p>
+                            <ul>
+                                <li><strong>实时数据：</strong>实验过程中自动保存到数据库（温度、压力、火焰长度等）</li>
+                                <li><strong>历史数据：</strong>可通过历史数据页面查询和导出</li>
+                                <li><strong>报告文件：</strong>HTML格式的实验报告可通过导出功能生成</li>
+                                <li><strong>火焰图像：</strong>爆炸性实验的火焰图像保存在data/flame_results和data/max_flame_images目录</li>
+                                <li><strong>切线分析图：</strong>着火点切线分析图像保存在data/analysis_images目录</li>
+                                <li><strong>配置文件：</strong>实验参数配置保存在configs目录</li>
+                                <li><strong>日志文件：</strong>系统运行日志保存在logs目录</li>
+                            </ul>
+                            <div class="warning-box">
+                                <span class="warning-icon">⚠️</span>
+                                <strong>重要：</strong>建议定期备份数据库文件和数据目录以防数据丢失。数据库文件采用SQLite格式，可以使用SQLite工具直接查看和备份。
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            如何升级系统版本？
+                        </div>
+                        <div class="help-answer">
+                            <ol class="step-list">
+                                <li class="step-item">
+                                    <span class="step-number">1</span>
+                                    备份当前系统数据和配置
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">2</span>
+                                    下载最新版本安装包
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">3</span>
+                                    关闭系统后运行安装程序
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">4</span>
+                                    启动新版本并验证功能
+                                </li>
+                            </ol>
+                        </div>
+                    </div>
+
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            系统运行环境要求是什么？
+                        </div>
+                        <div class="help-answer">
+                            <table class="parameter-table">
+                                <tr>
+                                    <th>项目</th>
+                                    <th>最低要求</th>
+                                    <th>推荐配置</th>
+                                </tr>
+                                <tr>
+                                    <td>操作系统</td>
+                                    <td>Windows 10</td>
+                                    <td>Windows 11</td>
+                                </tr>
+                                <tr>
+                                    <td>内存</td>
+                                    <td>4GB</td>
+                                    <td>8GB</td>
+                                </tr>
+                                <tr>
+                                    <td>硬盘空间</td>
+                                    <td>2GB</td>
+                                    <td>10GB</td>
+                                </tr>
+                                <tr>
+                                    <td>串口数量</td>
+                                    <td>1个</td>
+                                    <td>2个以上</td>
+                                </tr>
+                                <tr>
+                                    <td>显示器分辨率</td>
+                                    <td>1280×720</td>
+                                    <td>1920×1080</td>
+                                </tr>
+                            </table>
+                            <div class="info-box">
+                                <span class="info-icon">💡</span>
+                                <strong>系统架构：</strong>CPIE-3000A具备完整的设备通信（Modbus RTU）、数据采集、图像处理和实验控制功能。系统采用模块化设计，支持爆炸性实验和着火点实验两种模式。系统还支持副屏监控功能，可在副屏实时显示实验进度和设备状态。系统使用PySide6框架开发，支持工业相机（迈德威视）和多通道温度采集模块。
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            如何进行非标实验？
+                        </div>
+                        <div class="help-answer">
+                            <p><strong>非标实验功能：</strong></p>
+                            <p>系统支持灵活配置实验参数，可根据实际需求进行非标准实验。</p>
+                            
+                            <p><strong>可配置参数：</strong></p>
+                            <ul>
+                                <li><strong>爆炸性实验：</strong>
+                                    <ul>
+                                        <li>测试轮次：可在配置文件中设置max-rounds（最大轮次）和phase-rounds（阶段轮次）</li>
+                                        <li>判定阈值：可自定义无爆炸、弱爆炸、强爆炸的火焰长度阈值</li>
+                                        <li>实验条件：可调整目标温度、目标压力和容差范围</li>
+                                        <li>时序参数：可调整喷吹、等待、吹扫等各步骤的延时时间</li>
+                                    </ul>
+                                </li>
+                                <li><strong>着火点实验：</strong>
+                                    <ul>
+                                        <li>检测阈值：可调整温度突升阈值、时间窗口、温升速率阈值</li>
+                                        <li>采集范围：可设置采集起始温度和结束温度</li>
+                                        <li>升温速率：可通过温控仪表参数调整（默认4.75℃/min）</li>
+                                        <li>检测方法：可选择启用或禁用各种检测方法</li>
+                                    </ul>
+                                </li>
+                            </ul>
+                            
+                            <p><strong>配置方法：</strong></p>
+                            <ol class="step-list">
+                                <li class="step-item">
+                                    <span class="step-number">1</span>
+                                    打开配置文件：configs/experiment_config.yaml
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">2</span>
+                                    根据需要修改相应参数
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">3</span>
+                                    保存配置文件并重启系统
+                                </li>
+                                <li class="step-item">
+                                    <span class="step-number">4</span>
+                                    验证配置是否生效
+                                </li>
+                            </ol>
+                            
+                            <div class="warning-box">
+                                <span class="warning-icon">⚠️</span>
+                                <strong>注意：</strong>修改配置文件前请备份原文件。非标实验可能影响实验结果的可比性，建议详细记录实验参数。修改实验条件参数（温度、压力）时，请确保在设备安全范围内。
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="help-item">
+                        <div class="help-question" onclick="toggleAnswer(this)">
+                            <span class="question-icon">▶</span>
+                            如何联系技术支持？
+                        </div>
+                        <div class="help-answer">
+                            <div class="info-box">
+                                <span class="info-icon">📞</span>
+                                <strong>技术支持联系方式：</strong>
+                            </div>
+                            <ul>
+                                <li><strong>系统名称：</strong> CPIE-3000A 煤粉着火点及爆炸性检测系统</li>
+                                <li><strong>开发者：</strong> 史进朋 (Shi Jinpeng)</li>
+                                <li><strong>所属单位：</strong> 北京科技大学冶金与生态工程学院</li>
+                                <li><strong>研发团队：</strong> 炼铁新技术科研团队</li>
+                                <li><strong>邮箱支持：</strong> shijinpeng06@126.com</li>
+                                <li><strong>电话：</strong> 137-2019-7352</li>
+                                <li><strong>地址：</strong> 北京市海淀区学院路30号</li>
+                                <li><strong>官方网站：</strong> https://www.ustb.edu.cn</li>
+                                <li><strong>系统版本：</strong> V1.1.251121 (2025-11-21)</li>
+                                <li><strong>版权信息：</strong> © 2025 北京科技大学. All rights reserved.</li>
+                                <li><strong>Python版本要求：</strong> 3.8+</li>
+                                <li><strong>主要依赖：</strong> PySide6, PyYAML, pyqtgraph, opencv-python</li>
+                                <li><strong>支持平台：</strong> Windows (推荐), Linux, macOS</li>
+                                <li><strong>硬件支持：</strong> 迈德威视工业相机, Modbus RTU设备</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 显示指定内容区域
+        function showSection(sectionId) {
+            // 隐藏所有内容区域
+            document.querySelectorAll('.content-section').forEach(section => {
+                section.classList.remove('active');
+            });
+            
+            // 移除所有标签的active状态
+            document.querySelectorAll('.nav-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // 显示指定内容区域
+            document.getElementById(sectionId).classList.add('active');
+            
+            // 添加对应标签的active状态
+            event.target.classList.add('active');
+            
+            console.log('切换到内容区域:', sectionId);
+        }
+
+        // 切换问题答案显示
+        function toggleAnswer(questionElement) {
+            const answerElement = questionElement.nextElementSibling;
+            const iconElement = questionElement.querySelector('.question-icon');
+            
+            if (answerElement.classList.contains('collapsed')) {
+                answerElement.classList.remove('collapsed');
+                iconElement.textContent = '▼';
+            } else {
+                answerElement.classList.add('collapsed');
+                iconElement.textContent = '▶';
+            }
+        }
+
+        // 搜索帮助内容
+        function searchHelp() {
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            const helpItems = document.querySelectorAll('.help-item');
+            let hasResults = false;
+            
+            helpItems.forEach(item => {
+                const question = item.querySelector('.help-question').textContent.toLowerCase();
+                const answer = item.querySelector('.help-answer').textContent.toLowerCase();
+                
+                if (question.includes(searchTerm) || answer.includes(searchTerm)) {
+                    item.style.display = 'block';
+                    hasResults = true;
+                    
+                    // 高亮搜索关键词
+                    if (searchTerm.length > 0) {
+                        item.style.backgroundColor = 'rgba(0, 212, 255, 0.1)';
+                    } else {
+                        item.style.backgroundColor = '';
+                    }
+                } else {
+                    item.style.display = searchTerm.length > 0 ? 'none' : 'block';
+                    item.style.backgroundColor = '';
+                }
+            });
+            
+            // 显示或隐藏无结果提示
+            const existingNoResults = document.querySelector('.no-results');
+            if (existingNoResults) {
+                existingNoResults.remove();
+            }
+            
+            if (!hasResults && searchTerm.length > 0) {
+                const noResultsDiv = document.createElement('div');
+                noResultsDiv.className = 'no-results';
+                noResultsDiv.textContent = `未找到包含"${searchTerm}"的帮助内容`;
+                document.querySelector('.content-section.active').appendChild(noResultsDiv);
+            }
+        }
+
+        // 页面初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('帮助页面初始化');
+            
+            // 默认折叠所有答案
+            document.querySelectorAll('.help-answer').forEach(answer => {
+                answer.classList.add('collapsed');
+            });
+            
+            // 设置问题图标
+            document.querySelectorAll('.question-icon').forEach(icon => {
+                icon.textContent = '▶';
+            });
+            
+            // 绑定键盘快捷键
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'F1') {
+                    e.preventDefault();
+                    console.log('F1帮助快捷键');
+                }
+            });
+        });
+    </script>
+</body>
+</html>
+

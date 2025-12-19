@@ -1,0 +1,11 @@
+# 包含包内默认配置文件
+include flamekit/config_default.json
+include flamekit/README.md
+
+# 包含根目录的 requirements.txt（如果存在）
+include requirements.txt
+
+# 包含 README 文件
+include README.md
+recursive-include flamekit *.py
+

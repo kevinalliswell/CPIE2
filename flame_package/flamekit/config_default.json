@@ -1,0 +1,32 @@
+{
+    "camera": {
+        "exposure_us": 4000,
+        "resolution_index": 1,
+        "force_mono": true,
+        "capture_duration": 1.0
+    },
+    "calibration": {
+        "mm_per_pixel": 0.3152,
+        "reference_length_mm": 200.0,
+        "calibration_resolution": null,
+        "calibration_note": "警告：改变分辨率后必须重新标定！"
+    },
+    "calibration_history": {
+        "note": "不同分辨率的标定参数（格式：'宽度x高度': mm_per_pixel）",
+        "resolutions": {}
+    },
+    "analysis": {
+        "binary_threshold": 0,
+        "min_flame_area": 1000,
+        "use_otsu": true
+    },
+    "paths": {
+        "temp_dir": "./temp_captures",
+        "output_dir": "./results"
+    },
+    "playback": {
+        "default_fps": 30,
+        "speed_options": [0.25, 0.5, 1.0, 2.0, 4.0]
+    }
+}
+

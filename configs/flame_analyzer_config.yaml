@@ -1,0 +1,38 @@
+image_processing:
+  flame_threshold: 150
+  mm_per_pixel: 0.816082
+paths:
+  history_csv: data/exp_explosion/history_explosion.csv
+  exp_data_json: data/exp_explosion/explosion_experiment_data.json
+  temp_folder: data/temp_captures
+  flame_output_folder: data/flame_results
+  max_flame_save_folder: data/max_flame_images
+image_formats:
+- .jpg
+- .jpeg
+- .png
+- .bmp
+ui:
+  window_title: 火焰图像分析
+  progress_update_interval: 10
+  max_display_failed_files: 5
+opencv:
+  font: FONT_HERSHEY_SIMPLEX
+  font_scale: 0.5
+  text_color:
+  - 0
+  - 255
+  - 0
+  text_thickness: 2
+  bbox_color:
+  - 0
+  - 255
+  - 0
+  bbox_thickness: 1
+performance:
+  stream_processing: true
+  batch_size: 50
+logging:
+  enable: true
+  level: INFO
+  file: logs/flame_analyzer.log
