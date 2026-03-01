@@ -628,6 +628,34 @@ class ExplosionController(QObject):
         enum_state = state_map.get(new_state, self.current_state)
         self._set_state(enum_state)
     
+    # ==================== 数据库代理方法 ====================
+    # 避免视图层直接访问 self.controller.db，统一通过控制器方法访问数据库
+
+    def sync_round_number(self, count: int):
+        """同步实验轮次计数器（从数据库加载历史数据后调用）"""
+        self.current_round_number = count
+
+    def get_session_test_rounds(self, session_id: int):
+        """获取某个会话的所有测试轮次"""
+        return self.db.get_session_test_rounds(session_id)
+
+    def add_test_round(self, session_id: int, round_number: int,
+                       flame_length: float, max_flame_image_path: str = None):
+        """添加一轮测试数据"""
+        return self.db.add_test_round(session_id, round_number, flame_length, max_flame_image_path)
+
+    def calculate_session_average(self, session_id: int):
+        """计算某个会话的平均火焰长度"""
+        return self.db.calculate_session_average(session_id)
+
+    def classify_explosion_strength(self, avg_flame_length: float):
+        """根据平均火焰长度分类爆炸性强弱"""
+        return self.db.classify_explosion_strength(avg_flame_length)
+
+    def finalize_experiment(self, session_id: int, status: str = 'completed'):
+        """完成实验，计算平均值并保存结果"""
+        return self.db.finalize_experiment(session_id, status)
+
     def cleanup(self):
         """
         清理资源：停止定时器、停止设备管理器、关闭数据库连接

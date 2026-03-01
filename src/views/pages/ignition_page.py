@@ -48,7 +48,11 @@ class IgnitionExperimentPage(QWidget):
         
         self.config = config
         self.ui_config = ui_config
-        
+
+        # 通道数量（从配置读取，默认6）
+        _sample_channels = self.config.get('ignition_detection', {}).get('sample_channels', list(range(6)))
+        self.num_channels = len(_sample_channels)
+
         # 控制器
         self.controller = IgnitionController(config=config)
         
@@ -61,20 +65,20 @@ class IgnitionExperimentPage(QWidget):
         
         # 温度数据缓存
         max_points = self.ui_config.get('chart', {}).get('max_points', 5000)
-        self.temp_history = {i: deque(maxlen=max_points) for i in range(6)}
+        self.temp_history = {i: deque(maxlen=max_points) for i in range(self.num_channels)}
         self.time_history = deque(maxlen=max_points)
         self.start_time = None
-        
+
         # 着火点检测
-        self.ignition_detected_flags = [False] * 6
-        self.ignition_temperatures = [None] * 6
-        self.last_temperatures = [None] * 6
+        self.ignition_detected_flags = [False] * self.num_channels
+        self.ignition_temperatures = [None] * self.num_channels
+        self.last_temperatures = [None] * self.num_channels
         self.last_check_time = time.time()
         
         # 切线法检测器
         tangent_config = self.config['ignition_detection'].get('tangent_method', {})
         self.tangent_detector = TangentMethodDetector(tangent_config)
-        self.tangent_results = [None] * 6  # 存储切线法检测结果
+        self.tangent_results = [None] * self.num_channels  # 存储切线法检测结果
         
         # 模式管理
         self.current_mode_name = None  # 当前模式名称
@@ -214,7 +218,7 @@ class IgnitionExperimentPage(QWidget):
         # 创建曲线
         colors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#f7dc6f', '#bb8fce', '#85c1e9']
         self.plot_curves = []
-        for i in range(6):
+        for i in range(self.num_channels):
             curve = self.plot_widget.plot(
                 pen=pg.mkPen(color=colors[i], width=2),
                 name=f'样品{i+1}'
@@ -308,7 +312,7 @@ class IgnitionExperimentPage(QWidget):
         self.current_experiment_config = config
         
         # 新建实验时清空温度曲线缓存
-        for i in range(6):
+        for i in range(self.num_channels):
             self.temp_history[i].clear()
             self.ignition_detected_flags[i] = False
             self.ignition_temperatures[i] = None
@@ -518,7 +522,7 @@ class IgnitionExperimentPage(QWidget):
             self.is_running = False
             
             # 6. 重置页面UI状态（使用UI组件）
-            for i in range(6):
+            for i in range(self.num_channels):
                 self.ignition_detected_flags[i] = False
                 self.ignition_temperatures[i] = None
             self.temperature_panel.reset_ignition_status()
@@ -772,8 +776,8 @@ class IgnitionExperimentPage(QWidget):
         if not times:
             return
         
-        # 更新所有6个通道的曲线
-        for i in range(6):
+        # 更新所有通道的曲线
+        for i in range(self.num_channels):
             if self.temp_history[i] and len(self.temp_history[i]) > 0:
                 temps = list(self.temp_history[i])
                 # 确保长度一致，取最小长度

@@ -665,7 +665,7 @@ class ExplosionExperimentPage(QWidget):
         
         # 加载已有轮次数据（支持会话恢复）
         if self.current_session_id:
-            db_rounds = self.controller.db.get_session_test_rounds(self.current_session_id)
+            db_rounds = self.controller.get_session_test_rounds(self.current_session_id)
             for r in db_rounds:
                 self.round_records.append({
                     'round': r['round_number'],
@@ -674,6 +674,9 @@ class ExplosionExperimentPage(QWidget):
                 })
             if db_rounds:
                 self.log_message.emit(f"✓ 已从数据库加载 {len(db_rounds)} 轮历史数据")
+            # 同步控制器轮次计数，避免会话恢复后轮次从0重新计数
+            self.controller.sync_round_number(len(db_rounds))
+            self.current_round_number = len(db_rounds)
         
         self._update_records_panel()
         
@@ -941,14 +944,14 @@ class ExplosionExperimentPage(QWidget):
             return
         
         # 3. 获取当前数据
-        rounds = self.controller.db.get_session_test_rounds(self.current_session_id)
+        rounds = self.controller.get_session_test_rounds(self.current_session_id)
         if not rounds:
             QMessageBox.warning(self, "提示", "当前会话没有测试数据，无法完成实验")
             return
-        
+
         # 4. 计算统计信息
-        avg_length = self.controller.db.calculate_session_average(self.current_session_id)
-        explosion_level = self.controller.db.classify_explosion_strength(avg_length)
+        avg_length = self.controller.calculate_session_average(self.current_session_id)
+        explosion_level = self.controller.classify_explosion_strength(avg_length)
         
         # 5. 确认对话框
         reply = QMessageBox.question(
@@ -969,11 +972,11 @@ class ExplosionExperimentPage(QWidget):
             # 6. 更新状态并调用finalize_experiment
             self.controller._set_state(ExplosionExperimentState.COMPLETED)
             db_status = self.controller.current_state.to_db_status()
-            success = self.controller.db.finalize_experiment(
+            success = self.controller.finalize_experiment(
                 self.current_session_id,
                 status=db_status if db_status else 'completed'
             )
-            
+
             if success:
                 self.log_message.emit("=" * 50)
                 self.log_message.emit("✓ 实验已完成并保存")
@@ -1486,7 +1489,7 @@ class ExplosionExperimentPage(QWidget):
                     # 更新状态
                     self.controller._set_state(ExplosionExperimentState.COMPLETED)
                     db_status = self.controller.current_state.to_db_status()
-                    finalize_success = self.controller.db.finalize_experiment(
+                    finalize_success = self.controller.finalize_experiment(
                         session_id=self.current_session_id,
                         status=db_status if db_status else 'completed'
                     )
@@ -1593,7 +1596,7 @@ class ExplosionExperimentPage(QWidget):
                 return
             
             # 保存轮次数据
-            round_id = self.controller.db.add_test_round(
+            round_id = self.controller.add_test_round(
                 session_id=self.current_session_id,
                 round_number=self.current_round_number,
                 flame_length=self.max_flame_length,
@@ -1615,21 +1618,22 @@ class ExplosionExperimentPage(QWidget):
         """询问是否继续下一轮测试"""
         try:
             # 获取当前会话的所有轮次
-            rounds = self.controller.db.get_session_test_rounds(self.current_session_id)
+            rounds = self.controller.get_session_test_rounds(self.current_session_id)
             total_rounds = len(rounds)
-            
+
             self.log_message.emit(f"当前已完成 {total_rounds} 轮测试")
-            
+
             # 如果已经完成5轮，计算平均值并判断是否需要继续
             if total_rounds == 5:
-                avg_length = self.controller.db.calculate_session_average(self.current_session_id)
+                avg_length = self.controller.calculate_session_average(self.current_session_id)
                 self.log_message.emit(f"前5轮平均火焰长度: {avg_length:.2f}mm")
-                
-                if avg_length < 20:
+
+                phase_threshold = self.config.get('test-rounds', {}).get('phase-decision-threshold', 20.0)
+                if avg_length < phase_threshold:
                     reply = QMessageBox.question(
                         self,
                         '继续测试',
-                        f'前5轮平均火焰长度为 {avg_length:.2f}mm，低于20mm。\n'
+                        f'前5轮平均火焰长度为 {avg_length:.2f}mm，低于{phase_threshold:.0f}mm。\n'
                         f'根据实验流程，需要继续进行后5轮测试。\n\n'
                         f'是否现在继续第6轮测试？',
                         QMessageBox.Yes | QMessageBox.No,
@@ -1669,9 +1673,9 @@ class ExplosionExperimentPage(QWidget):
     def _ask_finalize_experiment(self, total_rounds):
         """询问是否完成实验"""
         try:
-            avg_length = self.controller.db.calculate_session_average(self.current_session_id)
-            explosion_level = self.controller.db.classify_explosion_strength(avg_length)
-            
+            avg_length = self.controller.calculate_session_average(self.current_session_id)
+            explosion_level = self.controller.classify_explosion_strength(avg_length)
+
             reply = QMessageBox.question(
                 self,
                 '完成实验',
@@ -1687,7 +1691,7 @@ class ExplosionExperimentPage(QWidget):
                 # 更新状态
                 self.controller._set_state(ExplosionExperimentState.COMPLETED)
                 db_status = self.controller.current_state.to_db_status()
-                success = self.controller.db.finalize_experiment(
+                success = self.controller.finalize_experiment(
                     self.current_session_id,
                     status=db_status if db_status else 'completed'
                 )

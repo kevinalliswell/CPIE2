@@ -74,6 +74,7 @@ explosion_experiment:
   test-rounds:
     max-rounds: 2
     phase-rounds: 1
+    phase-decision-threshold: 20.0  # 前5轮平均火焰长度低于此值时继续后5轮测试 (mm)
   explosion-thresholds:
     no-explosion: 25.0      # 无爆炸性上限 (mm)
     weak-explosion: 400.0   # 弱爆炸性上限 (mm)
