@@ -5,20 +5,11 @@
 Configuration Manager Module
 """
 import os
-import sys
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import Tuple, Optional
 import yaml
 import cv2
 
-# 动态添加src路径以支持导入
-if getattr(sys, 'frozen', False):
-    # 打包后的环境
-    current_dir = Path(sys.executable).parent
-else:
-    # 开发环境
-    current_dir = Path(__file__).resolve().parent
-    
 # 尝试导入PathManager
 try:
     from utils.path_manager import PathManager
@@ -31,7 +22,22 @@ except ImportError:
 
 class FlameAnalyzerConfig:
     """火焰分析仪配置类"""
-    
+
+    @staticmethod
+    def _to_path(path_value: Optional[str]) -> Path:
+        """将配置中的路径解析为项目根目录下的绝对路径。"""
+        if path_value is None:
+            return Path()
+
+        path = Path(path_value)
+        if path.is_absolute():
+            return path
+
+        if HAS_PATH_MANAGER:
+            return Path(PathManager.get_project_root()) / path
+
+        return Path(path_value).expanduser().resolve()
+
     def __init__(self, config_path: Optional[str] = None):
         """
         初始化配置
@@ -148,30 +154,30 @@ class FlameAnalyzerConfig:
     @property
     def history_csv_path(self) -> Path:
         """历史数据CSV路径"""
-        return Path(self._config['paths']['history_csv'])
-    
+        return self._to_path(self._config['paths']['history_csv'])
+
     @property
     def exp_data_json_path(self) -> Path:
         """实验数据JSON路径"""
-        return Path(self._config['paths']['exp_data_json'])
-    
+        return self._to_path(self._config['paths']['exp_data_json'])
+
     @property
-    def temp_folder(self) -> str:
+    def temp_folder(self) -> Path:
         """临时文件夹路径"""
         folder = self._config['paths'].get('temp_folder', 'data/temp_captures')
-        return Path(folder)
-    
+        return self._to_path(folder)
+
     @property
     def flame_output_folder(self) -> Path:
         """火焰分析结果保存文件夹"""
         folder = self._config['paths'].get('flame_output_folder', 'data/flame_results')
-        return Path(folder)
-    
+        return self._to_path(folder)
+
     @property
     def max_flame_save_folder(self) -> Path:
         """最大火焰图片保存文件夹"""
         folder = self._config['paths'].get('max_flame_save_folder', 'data/max_flame_images')
-        return Path(folder)
+        return self._to_path(folder)
     
     # ========== 图像格式 ==========
     @property
@@ -252,7 +258,7 @@ class FlameAnalyzerConfig:
     @property
     def log_file(self) -> Path:
         """日志文件路径"""
-        return Path(self._config['logging'].get('file', 'logs/flame_analyzer.log'))
+        return self._to_path(self._config['logging'].get('file', 'logs/flame_analyzer.log'))
     
     def save_config(self, output_path: Optional[str] = None):
         """

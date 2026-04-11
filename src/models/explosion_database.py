@@ -44,7 +44,7 @@ class ExplosionDatabase:
         """
         # 默认配置文件路径
         if config_path is None:
-            config_path = os.path.join("configs", "experiment_config.yaml")
+            config_path = PathManager.get_config_path("experiment_config.yaml")
         
         try:
             # 读取配置文件
@@ -353,15 +353,15 @@ class ExplosionDatabase:
             self.conn.rollback()
             return -1
     
-    def add_batch_test_rounds(self, session_id: int, 
+    def add_batch_test_rounds(self, session_id: int,
                              rounds_data: List[Tuple[int, float, str]]) -> int:
         """
         批量添加测试轮次数据
-        
+
         Args:
             session_id: 实验会话ID
             rounds_data: 轮次数据列表 [(round_number, flame_length, image_path), ...]
-            
+
         Returns:
             成功插入的记录数，失败返回0
         """
@@ -370,31 +370,37 @@ class ExplosionDatabase:
             if session_id <= 0:
                 self.logger.error("✗ 无效的会话ID")
                 return 0
-            
+
             if not rounds_data:
                 self.logger.error("✗ 没有提供轮次数据")
                 return 0
-            
+
+            normalized_rows = []
+
             # 验证每个轮次数据
-            for r in rounds_data:
-                if len(r) < 2:
-                    self.logger.error("✗ 轮次数据格式错误")
+            for index, round_item in enumerate(rounds_data, start=1):
+                if len(round_item) < 2:
+                    self.logger.error(f"✗ 第 {index} 条轮次数据格式错误")
                     return 0
-                round_number, flame_length = r[0], r[1]
+
+                round_number, flame_length = round_item[0], round_item[1]
+                image_path = round_item[2] if len(round_item) >= 3 else None
+
                 if not (1 <= round_number <= 10):
                     self.logger.error(f"✗ 无效的轮次编号: {round_number}")
                     return 0
                 if flame_length < 0:
                     self.logger.error(f"✗ 无效的火焰长度: {flame_length}")
                     return 0
-            
-            data_with_session = [(session_id, r[0], r[1], r[2]) for r in rounds_data]
+
+                normalized_rows.append((session_id, round_number, flame_length, image_path))
+
             self.cursor.executemany("""
-                INSERT INTO test_rounds 
+                INSERT INTO test_rounds
                 (session_id, round_number, flame_length, max_flame_image_path)
                 VALUES (?, ?, ?, ?)
-            """, data_with_session)
-            
+            """, normalized_rows)
+
             self.conn.commit()
             count = self.cursor.rowcount
             self.logger.info(f"✓ 批量添加 {count} 轮测试数据")

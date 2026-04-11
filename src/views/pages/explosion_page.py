@@ -125,20 +125,44 @@ class ExplosionExperimentPage(QWidget):
         self.update_timer.timeout.connect(self._update_display)
     
     def _connect_controller_signals(self):
-        """连接控制器信号"""
+        """连接控制器信号（使用队列连接确保线程安全）"""
         if not self.controller:
             return
-        
-        # 连接信号到槽
-        self.controller.device_connected.connect(self._on_controller_device_connected)
-        self.controller.experiment_created.connect(self._on_controller_experiment_created)
-        self.controller.experiment_started.connect(self._on_controller_experiment_started)
-        self.controller.experiment_stopped.connect(self._on_controller_experiment_stopped)
-        self.controller.sequence_completed.connect(self._on_controller_sequence_completed)
-        self.controller.log_message.connect(self._thread_safe_log)
-        self.controller.status_updated.connect(self._thread_safe_update_status)
+
+        # 使用队列连接确保槽函数在主线程执行
+        self.controller.device_connected.connect(
+            self._on_controller_device_connected,
+            Qt.QueuedConnection
+        )
+        self.controller.experiment_created.connect(
+            self._on_controller_experiment_created,
+            Qt.QueuedConnection
+        )
+        self.controller.experiment_started.connect(
+            self._on_controller_experiment_started,
+            Qt.QueuedConnection
+        )
+        self.controller.experiment_stopped.connect(
+            self._on_controller_experiment_stopped,
+            Qt.QueuedConnection
+        )
+        self.controller.sequence_completed.connect(
+            self._on_controller_sequence_completed,
+            Qt.QueuedConnection
+        )
+        self.controller.log_message.connect(
+            self._thread_safe_log,
+            Qt.QueuedConnection
+        )
+        self.controller.status_updated.connect(
+            self._thread_safe_update_status,
+            Qt.QueuedConnection
+        )
         # 连接喷吹阀信号（用于触发拍摄）
-        self.controller.spray_valve_opened.connect(self._on_spray_valve_opened)
+        self.controller.spray_valve_opened.connect(
+            self._on_spray_valve_opened,
+            Qt.QueuedConnection
+        )
     
     def _init_ui(self):
         """初始化界面（使用组件）"""

@@ -54,7 +54,39 @@ class IgnitionDatabase:
         except sqlite3.Error as e:
             self.logger.error(f"✗ 数据库连接失败: {e}")
             raise
-    
+
+    def _create_migration_backup(self, reason: str) -> Optional[str]:
+        """在执行破坏性迁移前创建数据库文件备份"""
+        if not self.db_path or self.db_path == ":memory:" or not os.path.exists(self.db_path):
+            self.logger.info("ℹ 当前数据库无需创建迁移备份")
+            return None
+
+        safe_reason = reason.replace(" ", "_")
+        backup_dir = PathManager.get_data_path("db_backups")
+        os.makedirs(backup_dir, exist_ok=True)
+        backup_name = (
+            f"{os.path.splitext(os.path.basename(self.db_path))[0]}_"
+            f"{safe_reason}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.bak"
+        )
+        backup_path = os.path.join(backup_dir, backup_name)
+        shutil.copy2(self.db_path, backup_path)
+        self.logger.warning(f"⚠ 已创建迁移备份: {backup_path}")
+        return backup_path
+
+    def _ensure_columns(self, table_name: str, missing_columns: Dict[str, str]):
+        """安全地向现有表补充缺失字段"""
+        if not missing_columns:
+            return
+
+        for column_name, column_definition in missing_columns.items():
+            self.logger.info(f"🔄 为 {table_name} 添加字段: {column_name}")
+            self.cursor.execute(
+                f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}"
+            )
+
+        self.conn.commit()
+        self.logger.info(f"✓ {table_name} 缺失字段补充完成: {list(missing_columns.keys())}")
+
     def _check_and_upgrade_schema(self):
         """检查并升级数据库表结构"""
         try:
@@ -67,229 +99,123 @@ class IgnitionDatabase:
             table_exists = self.cursor.fetchone() is not None
             
             if table_exists:
-                # 检查是否有新字段
+                # 检查并补充 experiment_sessions 缺失字段
                 self.cursor.execute("PRAGMA table_info(experiment_sessions)")
                 columns = [row[1] for row in self.cursor.fetchall()]
-                
-                required_columns = ['experiment_id', 'sample_names', 'client', 'operator']
-                missing_columns = [col for col in required_columns if col not in columns]
-                
+
+                required_columns = {
+                    'experiment_id': 'TEXT',
+                    'sample_names': 'TEXT',
+                    'client': 'TEXT',
+                    'operator': 'TEXT'
+                }
+                missing_columns = {
+                    col: definition
+                    for col, definition in required_columns.items()
+                    if col not in columns
+                }
+
                 if missing_columns:
-                    self.logger.warning(f"⚠ 检测到旧表结构，缺少字段: {missing_columns}")
-                    
-                    # 如果只是缺少 experiment_id，可以直接添加
-                    if missing_columns == ['experiment_id']:
-                        self.logger.info("🔄 添加 experiment_id 字段...")
-                        try:
-                            self.cursor.execute("""
-                                ALTER TABLE experiment_sessions 
-                                ADD COLUMN experiment_id TEXT
-                            """)
-                            self.conn.commit()
-                            self.logger.info("✓ 已添加 experiment_id 字段")
-                        except sqlite3.Error as e:
-                            self.logger.error(f"✗ 添加字段失败: {e}")
-                    else:
-                        # 如果缺少多个字段，重建数据库
-                        self.logger.info("🔄 删除旧数据库并重建...")
-                        
-                        # 关闭连接
-                        self.conn.close()
-                        
-                        # 删除数据库文件
-                        import os
-                        if os.path.exists(self.db_path):
-                            os.remove(self.db_path)
-                            self.logger.info(f"✓ 已删除旧数据库: {self.db_path}")
-                        
-                        # 重新连接
-                        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
-                        self.cursor = self.conn.cursor()
-                        self.cursor.execute("PRAGMA foreign_keys = ON")
-                        self.logger.info(f"✓ 已重新创建数据库连接")
-                    
+                    self.logger.warning(
+                        f"⚠ 检测到旧表结构，缺少字段: {list(missing_columns.keys())}"
+                    )
+                    self._ensure_columns('experiment_sessions', missing_columns)
+
             # 检查并升级 ignition_realtime_data 表（添加 session_id 字段）
             self._upgrade_realtime_data_table()
-            
+
             # 检查并升级 ignition_detection 表（添加 tangent_analysis_image_path 字段）
             self._upgrade_ignition_detection_table()
-                    
+
         except sqlite3.Error as e:
             self.logger.error(f"✗ 检查表结构失败: {e}")
+            raise
     
     def _upgrade_realtime_data_table(self):
         """升级 ignition_realtime_data 表：添加 session_id 字段"""
         try:
             # 检查表是否存在
             self.cursor.execute("""
-                SELECT name FROM sqlite_master 
+                SELECT name FROM sqlite_master
                 WHERE type='table' AND name='ignition_realtime_data'
             """)
-            
+
             if self.cursor.fetchone() is None:
                 return  # 表不存在，跳过升级
-            
+
             # 检查是否已有 session_id 字段
             self.cursor.execute("PRAGMA table_info(ignition_realtime_data)")
             columns = [row[1] for row in self.cursor.fetchall()]
-            
+
             if 'session_id' in columns:
                 return  # 字段已存在，跳过升级
-            
-            self.logger.warning("⚠ 检测到 ignition_realtime_data 表缺少 session_id 字段，开始升级...")
-            
-            # 备份旧表数据
-            self.cursor.execute("""
-                CREATE TABLE ignition_realtime_data_backup AS 
-                SELECT * FROM ignition_realtime_data
-            """)
-            self.logger.info("✓ 已备份旧数据")
-            
-            # 删除旧表
-            self.cursor.execute("DROP TABLE ignition_realtime_data")
-            self.logger.info("✓ 已删除旧表")
-            
-            # 创建新表（带 session_id）
-            self.cursor.execute("""
-                CREATE TABLE ignition_realtime_data (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_id INTEGER,
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    pv REAL NOT NULL,
-                    ch1 REAL NOT NULL,
-                    ch2 REAL NOT NULL,
-                    ch3 REAL NOT NULL,
-                    ch4 REAL NOT NULL,
-                    ch5 REAL NOT NULL,
-                    ch6 REAL NOT NULL,
-                    FOREIGN KEY (session_id) REFERENCES experiment_sessions(id) ON DELETE CASCADE
-                )
-            """)
-            self.logger.info("✓ 已创建新表结构")
-            
-            # 恢复数据（session_id 设为 NULL）
-            self.cursor.execute("""
-                INSERT INTO ignition_realtime_data 
-                (id, session_id, timestamp, pv, ch1, ch2, ch3, ch4, ch5, ch6)
-                SELECT id, NULL, timestamp, pv, ch1, ch2, ch3, ch4, ch5, ch6
-                FROM ignition_realtime_data_backup
-            """)
-            restored_count = self.cursor.rowcount
-            self.logger.info(f"✓ 已恢复 {restored_count} 条旧数据")
-            
-            # 删除备份表
-            self.cursor.execute("DROP TABLE ignition_realtime_data_backup")
-            
-            # 重新创建索引
-            self.cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_session_id 
-                ON ignition_realtime_data(session_id)
-            """)
-            self.cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_timestamp 
-                ON ignition_realtime_data(timestamp)
-            """)
-            
-            self.conn.commit()
-            self.logger.info("✓ ignition_realtime_data 表升级完成")
-            
+
+            backup_path = self._create_migration_backup('ignition_realtime_data_upgrade')
+            message = (
+                "检测到 ignition_realtime_data 表缺少 session_id 字段。"
+                "为避免数据迁移过程中出现不可恢复的数据丢失，本次启动不会自动重建该表。"
+            )
+            if backup_path:
+                message += f" 已创建备份: {backup_path}"
+            self.logger.error(f"✗ {message}")
+            raise sqlite3.DatabaseError(message)
+
         except sqlite3.Error as e:
             self.logger.error(f"✗ 升级 ignition_realtime_data 表失败: {e}")
             self.conn.rollback()
+            raise
     
     def _upgrade_ignition_detection_table(self):
         """升级 ignition_detection 表：添加 detection_method 和 tangent_analysis_image_path 字段，修复级联删除约束"""
         try:
             # 检查表是否存在
             self.cursor.execute("""
-                SELECT name FROM sqlite_master 
+                SELECT name FROM sqlite_master
                 WHERE type='table' AND name='ignition_detection'
             """)
-            
+
             if self.cursor.fetchone() is None:
                 return  # 表不存在，跳过升级
-            
+
             # 检查字段是否存在
             self.cursor.execute("PRAGMA table_info(ignition_detection)")
             columns = [row[1] for row in self.cursor.fetchall()]
-            
-            # 添加 detection_method 字段
+
+            missing_columns = {}
             if 'detection_method' not in columns:
-                self.logger.warning("⚠ 检测到 ignition_detection 表缺少 detection_method 字段，开始升级...")
-                self.cursor.execute("""
-                    ALTER TABLE ignition_detection 
-                    ADD COLUMN detection_method TEXT DEFAULT 'realtime'
-                """)
-                self.conn.commit()
-                self.logger.info("✓ ignition_detection 表升级完成：已添加 detection_method 字段")
-            
-            # 添加 tangent_analysis_image_path 字段
+                missing_columns['detection_method'] = "TEXT DEFAULT 'realtime'"
             if 'tangent_analysis_image_path' not in columns:
-                self.logger.warning("⚠ 检测到 ignition_detection 表缺少 tangent_analysis_image_path 字段，开始升级...")
-                self.cursor.execute("""
-                    ALTER TABLE ignition_detection 
-                    ADD COLUMN tangent_analysis_image_path TEXT
-                """)
-                self.conn.commit()
-                self.logger.info("✓ ignition_detection 表升级完成：已添加 tangent_analysis_image_path 字段")
-            
+                missing_columns['tangent_analysis_image_path'] = 'TEXT'
+
+            if missing_columns:
+                self.logger.warning(
+                    f"⚠ 检测到 ignition_detection 表缺少字段: {list(missing_columns.keys())}"
+                )
+                self._ensure_columns('ignition_detection', missing_columns)
+
             # 检查并修复级联删除约束
             self.cursor.execute("""
-                SELECT sql FROM sqlite_master 
+                SELECT sql FROM sqlite_master
                 WHERE type='table' AND name='ignition_detection'
             """)
             table_sql = self.cursor.fetchone()
             if table_sql and table_sql[0]:
                 # 检查是否缺少 ON DELETE CASCADE
                 if 'ON DELETE CASCADE' not in table_sql[0] and 'FOREIGN KEY' in table_sql[0]:
-                    self.logger.warning("⚠ 检测到 ignition_detection 表缺少级联删除约束，开始升级...")
-                    
-                    # 备份旧表数据
-                    self.cursor.execute("""
-                        CREATE TABLE ignition_detection_backup AS 
-                        SELECT * FROM ignition_detection
-                    """)
-                    self.logger.info("✓ 已备份旧数据")
-                    
-                    # 删除旧表
-                    self.cursor.execute("DROP TABLE ignition_detection")
-                    self.logger.info("✓ 已删除旧表")
-                    
-                    # 创建新表（带级联删除）
-                    self.cursor.execute("""
-                        CREATE TABLE ignition_detection (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            session_id INTEGER,
-                            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                            channel INTEGER NOT NULL,
-                            ignition_temperature REAL NOT NULL,
-                            detection_method TEXT DEFAULT 'realtime',
-                            tangent_analysis_image_path TEXT,
-                            FOREIGN KEY (session_id) REFERENCES experiment_sessions(id) ON DELETE CASCADE
-                        )
-                    """)
-                    self.logger.info("✓ 已创建新表结构（带级联删除）")
-                    
-                    # 恢复数据
-                    self.cursor.execute("""
-                        INSERT INTO ignition_detection 
-                        (id, session_id, timestamp, channel, ignition_temperature, detection_method, tangent_analysis_image_path)
-                        SELECT id, session_id, timestamp, channel, ignition_temperature, 
-                               COALESCE(detection_method, 'realtime'), tangent_analysis_image_path
-                        FROM ignition_detection_backup
-                    """)
-                    restored_count = self.cursor.rowcount
-                    self.logger.info(f"✓ 已恢复 {restored_count} 条旧数据")
-                    
-                    # 删除备份表
-                    self.cursor.execute("DROP TABLE ignition_detection_backup")
-                    
-                    self.conn.commit()
-                    self.logger.info("✓ ignition_detection 表级联删除约束升级完成")
-            
+                    backup_path = self._create_migration_backup('ignition_detection_fk_upgrade')
+                    message = (
+                        "检测到 ignition_detection 表缺少 ON DELETE CASCADE 约束。"
+                        "当前版本不会再自动删除并重建该表，请先基于备份执行人工迁移后再启动。"
+                    )
+                    if backup_path:
+                        message += f" 备份文件: {backup_path}"
+                    self.logger.error(f"✗ {message}")
+                    raise sqlite3.DatabaseError(message)
+
         except sqlite3.Error as e:
             self.logger.error(f"✗ 升级 ignition_detection 表失败: {e}")
             self.conn.rollback()
+            raise
     
     def _create_tables(self):
         """创建数据表"""

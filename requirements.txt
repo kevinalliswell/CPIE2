@@ -63,7 +63,7 @@ typing-extensions>=4.5.0
 # 本地包 (需要单独安装)
 # ============================================================
 # flamekit - 火焰分析工具包 (迈德威视工业相机)
-# 安装命令: pip install -e ./src/flame_package
+# 安装命令: pip install -e flame_package
 #
 # modbus_multi_device - Modbus多设备通信包
-# 安装命令: pip install -e ./src/modbus_multi_device_package
+# 安装命令: pip install -e modbus_multi_device_package

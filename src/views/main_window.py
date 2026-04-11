@@ -1,35 +1,27 @@
 # src/ui/main_window.py
 import os
-import sys
-import yaml
-
 
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QLabel, QFrame,
+    QMainWindow, QWidget, QVBoxLayout, QFrame,
     QHBoxLayout, QStackedWidget, QMessageBox
 )
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QAction, QKeySequence, QPixmap
+from PySide6.QtCore import QTimer
+from PySide6.QtGui import QAction, QIcon, QKeySequence
 
-# 导入页面
-from src.models import ExplosionDatabase, IgnitionDatabase
-from src.utils import PathManager
-from views.pages.home_page import HomePage
-from views.pages.about_page import AboutPage
-from views.pages.config_page import ConfigPage
-from views.pages.explosion_page import ExplosionExperimentPage
-from views.pages.ignition_page import IgnitionExperimentPage
-from views.pages.help_page import HelpPage
-from views.pages.history_query_page import HistoryQueryPage
+from src.utils.logger import LoggerManager
+from src.utils.path_manager import PathManager
+from src.utils.tools import Tools
+from src.views.pages.about_page import AboutPage
+from src.views.pages.config_page import ConfigPage
+from src.views.pages.explosion_page import ExplosionExperimentPage
+from src.views.pages.help_page import HelpPage
+from src.views.pages.history_query_page import HistoryQueryPage
+from src.views.pages.home_page import HomePage
+from src.views.pages.ignition_page import IgnitionExperimentPage
+from src.views.ui_components.sidebar import Sidebar
+from src.views.ui_components.status_bar import StatusBar
+from src.views.ui_components.title_bar import TitleBar
 
-# 导入 UI 组件
-from views.ui_components.title_bar import TitleBar
-from views.ui_components.sidebar import Sidebar
-from views.ui_components.status_bar import StatusBar
-
-# 导入日志功能
-from utils.logger import LoggerManager
-from utils.tools import Tools
 # from models.user_manager import UserManager  # 已禁用用户管理功能
 
 
@@ -165,19 +157,19 @@ class MainWindow(QMainWindow):
     def _set_window_icon(self):
         """设置窗口图标"""
         try:
-            # 尝试使用增强版图标
             icon_paths = [
-                "resources/icons/cpie_logo_icon.ico",
+                PathManager.get_resources_path(os.path.join("icons", "cpie_logo_icon.ico")),
+                PathManager.get_resources_path(os.path.join("icons", "cpie_logo_icon.icns")),
             ]
-            
+
             for icon_path in icon_paths:
                 if os.path.exists(icon_path):
-                    icon = QPixmap(icon_path)
+                    icon = QIcon(icon_path)
                     if not icon.isNull():
                         self.setWindowIcon(icon)
                         self.logger.info(f"窗口图标设置成功: {icon_path}")
                         return
-            
+
             self.logger.warning("未找到可用的窗口图标文件")
         except Exception as e:
             self.logger.error(f"设置窗口图标失败: {e}")
@@ -241,8 +233,6 @@ class MainWindow(QMainWindow):
     # ==============================
     def init_backend(self):
         """初始化后端（Controllers）"""
-        # 初始化所有必需的目录
-        from utils.path_manager import PathManager
         PathManager.initialize_directories()
         self.logger.info("项目目录结构初始化完成")
 

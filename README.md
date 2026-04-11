@@ -3,7 +3,7 @@
 <div align="center">
 
 ![Version](https://img.shields.io/badge/version-1.1.251121-blue)
-![Python](https://img.shields.io/badge/python-3.10+-green)
+![Python](https://img.shields.io/badge/python-3.9+-green)
 ![License](https://img.shields.io/badge/license-MIT-orange)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 
@@ -82,7 +82,7 @@ CPIE 2.0 是一套专业的煤粉可燃性实验系统，用于测试和分析�
 
 ### 软件要求
 - **操作系统**: Windows 10/11, macOS 10.15+, Linux (Ubuntu 20.04+)
-- **Python 版本**: 3.10 或更高
+- **Python 版本**: 3.9 或更高
 - **其他依赖**: 见 `requirements.txt`
 
 ---
@@ -115,14 +115,16 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 
 # 安装本地包
-pip install -e ./flame_package
-pip install -e ./modbus_multi_device_package
+pip install -e flame_package
+pip install -e modbus_multi_device_package
 ```
 
 ### 4. 运行应用
 ```bash
 python src/app.py
 ```
+
+说明：入口脚本会补充项目根目录与 `src/` 到 `sys.path`，优先使用 `src.*` 导入，减少开发环境与打包环境下的路径差异。
 
 ---
 
@@ -136,12 +138,16 @@ python src/app.py
 #### 构建可执行文件
 ```bash
 # 安装依赖后，运行构建脚本
-python build_release_optimized.py
+python build_release.py
 
 # 打包文件位于
 # - dist/CPIE/ (应用程序目录)
 # - release/ (压缩包)
 ```
+
+构建脚本会检查以下本地包目录：
+- `flame_package/`
+- `modbus_multi_device_package/`
 
 详细构建说明请参考 [BUILD_GUIDE.md](BUILD_GUIDE.md)
 

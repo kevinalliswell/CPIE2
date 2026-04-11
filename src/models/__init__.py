@@ -7,13 +7,9 @@ Models Module
 提供数据库管理等功能
 """
 
-from .ignition_database import IgnitionDatabase
-from .explosion_database import ExplosionDatabase
-from .explosion_experiment import ExplosionExperiment
-from .ignition_experiment import IgnitionExperiment
-from .data_handler import DataHandler
+from importlib import import_module
+
 from .experiment_states import ExplosionExperimentState, IgnitionExperimentState
-from .user_manager import UserManager, User
 
 __all__ = [
     'IgnitionDatabase',
@@ -25,6 +21,31 @@ __all__ = [
     'IgnitionExperimentState',
     'UserManager',
     'User'
-    ]
+]
 
 __version__ = '1.0.0'
+
+_LAZY_IMPORTS = {
+    'IgnitionDatabase': '.ignition_database',
+    'ExplosionDatabase': '.explosion_database',
+    'ExplosionExperiment': '.explosion_experiment',
+    'IgnitionExperiment': '.ignition_experiment',
+    'DataHandler': '.data_handler',
+    'UserManager': '.user_manager',
+    'User': '.user_manager',
+}
+
+
+def __getattr__(name):
+    module_name = _LAZY_IMPORTS.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    module = import_module(module_name, __name__)
+    value = getattr(module, name)
+    globals()[name] = value
+    return value
+
+
+def __dir__():
+    return sorted(set(globals()) | set(__all__))

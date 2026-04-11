@@ -6,7 +6,6 @@
 """
 
 import logging
-import time
 import threading
 from datetime import datetime
 from PySide6.QtCore import QObject, Signal, QTimer
@@ -79,7 +78,95 @@ class ExplosionController(QObject):
         
         # 当前实验状态（使用枚举）
         self.current_state = ExplosionExperimentState.IDLE
-    
+        self._relay_settle_delay_ms = int(self.config.get('relay_settle_delay_ms', 80))
+        self._max_nonblocking_delay_ms = int(self.config.get('max_nonblocking_delay_ms', 200))
+        self._sequence_abort_reason = None
+        self._sequence_error = None
+
+    def _interruptible_wait(self, duration_seconds: float) -> bool:
+        """分片等待，允许时序停止时尽快退出。返回True表示完成等待。"""
+        remaining_ms = max(0, int(duration_seconds * 1000))
+        chunk_ms = max(20, min(self._max_nonblocking_delay_ms, 200))
+
+        while remaining_ms > 0:
+            if not self.sequence_running:
+                return False
+            wait_ms = min(chunk_ms, remaining_ms)
+            threading.Event().wait(wait_ms / 1000.0)
+            remaining_ms -= wait_ms
+
+        return True
+
+    def _abort_sequence(self, message: str, set_error_state: bool = True):
+        """记录时序中止原因并更新内部标记。"""
+        self._sequence_abort_reason = message
+        self.sequence_running = False
+        self.log_message.emit(message)
+        self.logger.warning(message)
+        if set_error_state:
+            self._sequence_error = RuntimeError(message)
+
+    def _handle_sequence_interrupted(self):
+        """统一处理时序中断后的状态收尾。"""
+        if self._sequence_abort_reason:
+            self.log_message.emit(f"时序被中断: {self._sequence_abort_reason}")
+        else:
+            self.log_message.emit("时序被中断")
+        self.logger.info("实验时序已中断")
+        self.is_running = False
+
+    def _schedule_relay_success_log(self, relay_name: str, state_str: str):
+        """异步输出继电器控制成功日志，避免短暂阻塞调用线程。"""
+        self.log_message.emit(f"  ✓ {relay_name} -> {state_str}")
+        self.logger.debug(f"继电器控制: {relay_name} -> {state_str}")
+
+    def _handle_sequence_stop_or_abort(self):
+        """在步骤失败或外部停止后停止时序并输出一次中断日志。"""
+        self.sequence_running = False
+        self._handle_sequence_interrupted()
+
+    def _should_transition_to_waiting_analysis(self) -> bool:
+        """判断当前是否应在时序结束后进入等待分析状态。"""
+        return (
+            self.current_session_id is not None
+            and self.current_state not in {
+                ExplosionExperimentState.ERROR,
+                ExplosionExperimentState.SESSION_CREATED,
+                ExplosionExperimentState.CONNECTED,
+                ExplosionExperimentState.IDLE,
+            }
+        )
+
+    def _emit_current_status(self):
+        """按当前状态刷新状态文本。"""
+        self.status_updated.emit(
+            self.current_state.display_text(),
+            f"font-weight: bold; font-size: 12pt; color: {self.current_state.color()};"
+        )
+
+    def _emit_waiting_analysis_status(self):
+        """刷新等待分析状态显示。"""
+        self.status_updated.emit(
+            f"状态: 等待分析 (会话ID:{self.current_session_id})",
+            f"font-weight: bold; font-size: 12pt; color: {self.current_state.color()};"
+        )
+
+    def _set_post_sequence_state(self):
+        """根据时序执行结果更新结束状态。"""
+        if self.current_state == ExplosionExperimentState.ERROR:
+            self.is_running = False
+            self._emit_current_status()
+        elif self._should_transition_to_waiting_analysis():
+            self._set_state(ExplosionExperimentState.WAITING_ANALYSIS)
+            self._emit_waiting_analysis_status()
+        elif self.current_session_id:
+            self.is_running = False
+            self._emit_current_status()
+        else:
+            self.is_running = False
+            self._set_state(ExplosionExperimentState.IDLE)
+            self._emit_current_status()
+
     def connect_devices(self):
         """连接设备（在后台线程中执行）"""
         self.log_message.emit("正在连接设备...")
@@ -211,6 +298,8 @@ class ExplosionController(QObject):
         # 更新状态
         self.is_running = True
         self.sequence_running = True
+        self._sequence_abort_reason = None
+        self._sequence_error = None
         self._set_state(ExplosionExperimentState.SEQUENCE_RUNNING)
         
         self.status_updated.emit(
@@ -228,78 +317,92 @@ class ExplosionController(QObject):
         """执行时序控制（后台线程）"""
         try:
             steps = self.config.get('sequence_steps', [])
-            
+
             for step in steps:
                 if not self.sequence_running:
-                    self.log_message.emit("时序被中断")
+                    self._handle_sequence_interrupted()
                     break
-                
+
                 step_num = step['step']
                 name = step['name']
                 action = step['action']
-                
+
                 self.log_message.emit(f"[步骤{step_num}] {name}")
-                
+
                 if action == 'relay_on':
                     relay = step['relay']
                     # 如果是打开喷吹阀，发送信号触发拍摄
                     if relay == 'spray_valve':
                         self.spray_valve_opened.emit()
-                    self.control_relay(relay, True)
-                
+                    if not self.control_relay(relay, True):
+                        self._abort_sequence(f"步骤{step_num} 执行失败: 无法打开继电器 {relay}")
+                        break
+
                 elif action == 'relay_off':
                     relay = step['relay']
-                    self.control_relay(relay, False)
-                
+                    if not self.control_relay(relay, False):
+                        self._abort_sequence(f"步骤{step_num} 执行失败: 无法关闭继电器 {relay}")
+                        break
+
                 elif action == 'relay_multi_on':
                     relays = step['relays']
                     for relay in relays:
-                        self.control_relay(relay, True)
-                
+                        if not self.control_relay(relay, True):
+                            self._abort_sequence(f"步骤{step_num} 执行失败: 无法打开继电器 {relay}")
+                            break
+                    if not self.sequence_running:
+                        self._handle_sequence_stop_or_abort()
+                        break
+
                 elif action == 'relay_multi_off':
                     relays = step['relays']
                     for relay in relays:
-                        self.control_relay(relay, False)
-                
+                        if not self.control_relay(relay, False):
+                            self._abort_sequence(f"步骤{step_num} 执行失败: 无法关闭继电器 {relay}")
+                            break
+                    if not self.sequence_running:
+                        self._handle_sequence_stop_or_abort()
+                        break
+
                 elif action == 'delay':
                     duration = step['duration']
                     self.log_message.emit(f"  延时 {duration}秒...")
-                    time.sleep(duration)
-                
+                    if not self._interruptible_wait(duration):
+                        self._handle_sequence_stop_or_abort()
+                        break
+
                 elif action == 'verify_all_off':
-                    self._verify_relays_off(step)
-                
+                    if not self._verify_relays_off(step):
+                        if self.sequence_running:
+                            self._abort_sequence(f"步骤{step_num} 验证失败: 仍有继电器未关闭")
+                        else:
+                            self._handle_sequence_stop_or_abort()
+                        break
+
                 # 步骤后延时
                 delay_after = step.get('delay_after', 0)
-                if delay_after > 0:
-                    time.sleep(delay_after)
-            
+                if delay_after > 0 and not self._interruptible_wait(delay_after):
+                    self._handle_sequence_stop_or_abort()
+                    break
+
+            if self._sequence_error:
+                raise self._sequence_error
+
             if self.sequence_running:
                 self.log_message.emit("=" * 50)
                 self.log_message.emit(f"✓ 第 {self.current_round_number} 轮实验完成")
                 self.sequence_completed.emit()
-        
+
         except Exception as e:
             self.log_message.emit(f"✗ 时序执行错误: {e}")
             self.logger.error(f"时序执行错误: {e}")
             self._set_state(ExplosionExperimentState.ERROR)
-        
+
         finally:
             self.sequence_running = False
-            
-            # 更新状态：时序完成后进入等待分析状态
-            if self.current_session_id:
-                self._set_state(ExplosionExperimentState.WAITING_ANALYSIS)
-                self.status_updated.emit(
-                    f"状态: 等待分析 (会话ID:{self.current_session_id})",
-                    f"font-weight: bold; font-size: 12pt; color: {self.current_state.color()};"
-                )
-            else:
-                self._set_state(ExplosionExperimentState.IDLE)
-                self.status_updated.emit(
-                    "状态: 已停止",
-                    f"font-weight: bold; font-size: 12pt; color: {self.current_state.color()};"
-                )
+            self._set_post_sequence_state()
+            self._sequence_abort_reason = None
+            self._sequence_error = None
     
     def stop_experiment(self):
         """
@@ -318,43 +421,49 @@ class ExplosionController(QObject):
         
         try:
             self.log_message.emit("停止实验...")
-            
+
             # 停止时序
             self.sequence_running = False
-            
+            self._sequence_abort_reason = "用户主动停止实验"
+            self._sequence_error = None
+
             # 关闭所有继电器
+            relay_shutdown_failures = []
             if self.manager:
                 relay_mapping = self.config.get('relay_mapping', {})
                 for relay_name in relay_mapping.keys():
-                    try:
-                        self.control_relay(relay_name, False)
-                    except:
-                        pass
-            
+                    if not self.control_relay(relay_name, False):
+                        relay_shutdown_failures.append(relay_name)
+
+            if relay_shutdown_failures:
+                failure_msg = f"停止时未能关闭继电器: {', '.join(relay_shutdown_failures)}"
+                self.log_message.emit(f"⚠ {failure_msg}")
+                self.logger.warning(failure_msg)
+
             # 停止设备管理器（但不关闭连接，因为可能还需要使用）
             # 注意：这里只停止运行，不关闭连接，真正的关闭在cleanup中处理
-            
+
             # 注意：不要在这里结束数据库会话
             # 停止只是暂停当前轮次，会话应保持running状态
             # 会话只在用户主动"完成实验"时才结束
-            
+
             # 更新状态：停止后回到SESSION_CREATED状态（可以继续实验）
             self.is_running = False
             if self.current_session_id:
                 self._set_state(ExplosionExperimentState.SESSION_CREATED)
             else:
                 self._set_state(ExplosionExperimentState.CONNECTED)
-            
+
             self.experiment_stopped.emit()
-            
+
             self.status_updated.emit(
                 self.current_state.display_text(),
                 f"font-weight: bold; font-size: 12pt; color: {self.current_state.color()};"
             )
             self.log_message.emit("✓ 实验已停止")
             self.logger.info("实验已停止")
-            
-            return True
+
+            return not relay_shutdown_failures
         
         except Exception as e:
             self.log_message.emit(f"✗ 停止失败: {e}")
@@ -397,9 +506,13 @@ class ExplosionController(QObject):
             
             state_str = "导通" if state else "断开"
             if success:
-                self.log_message.emit(f"  ✓ {relay_name} -> {state_str}")
-                self.logger.debug(f"继电器控制: {relay_name} -> {state_str}")
-                time.sleep(0.3)
+                if self._relay_settle_delay_ms > 0:
+                    QTimer.singleShot(
+                        self._relay_settle_delay_ms,
+                        lambda relay_name=relay_name, state_str=state_str: self._schedule_relay_success_log(relay_name, state_str)
+                    )
+                else:
+                    self._schedule_relay_success_log(relay_name, state_str)
                 return True
             else:
                 self.log_message.emit(f"  ✗ {relay_name} 控制失败")
@@ -442,10 +555,10 @@ class ExplosionController(QObject):
         """验证继电器全部关闭"""
         retry_count = step_config.get('retry_count', 3)
         retry_interval = step_config.get('retry_interval', 1.0)
-        
+
         for attempt in range(retry_count):
             all_off = True
-            
+
             # 检查所有继电器状态
             data = self.get_latest_relay_data()
             if data:
@@ -454,15 +567,16 @@ class ExplosionController(QObject):
                     if state:
                         all_off = False
                         self.log_message.emit(f"  ⚠ 继电器{relay_num}仍处于导通状态")
-            
+
             if all_off:
                 self.log_message.emit("  ✓ 所有继电器已关闭")
                 return True
-            
+
             if attempt < retry_count - 1:
                 self.log_message.emit(f"  等待{retry_interval}秒后重试...")
-                time.sleep(retry_interval)
-        
+                if not self._interruptible_wait(retry_interval):
+                    return False
+
         self.log_message.emit("  ✗ 验证失败：部分继电器未关闭")
         return False
     
