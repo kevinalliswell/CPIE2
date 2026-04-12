@@ -98,7 +98,6 @@ class CPIEBuilder:
             ("lxml", "lxml"),
             
             # 系统和工具
-            ("psutil", "psutil"),
             ("PyYAML", "yaml"),
             
             # 本地包

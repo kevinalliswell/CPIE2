@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-1.1.251121-blue)
+![Version](https://img.shields.io/badge/version-1.1.0-blue)
 ![Python](https://img.shields.io/badge/python-3.9+-green)
 ![License](https://img.shields.io/badge/license-MIT-orange)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
@@ -258,8 +258,8 @@ CPIE2/
 
 安装方式：
 ```bash
-pip install -e ./flame_package
-pip install -e ./modbus_multi_device_package
+pip install -e flame_package
+pip install -e modbus_multi_device_package
 ```
 
 ---
@@ -311,12 +311,11 @@ pytest tests/test_ignition_experiment_logic.py
 
 ## 📈 更新日志
 
-### v1.1.251121 (2025-11-21)
-- ✨ 移除登录界面，简化启动流程
-- 🎨 重构核心页面UI与逻辑分离
-- ⚡ 优化爆炸性实验阈值及状态管理
-- 🐛 修复多个已知问题
-- 📝 更新帮助文档
+### v1.1.0
+- 基于 `dev` 分支稳定化改进合并到正式发布线
+- 修复启动、资源路径、构建脚本与版本说明不一致问题
+- 降低硬件 SDK 导入副作用，支持无相机环境下的 smoke check 与关键测试
+- 整理关键 pytest 用例并补充 Windows release 自动化流程
 
 ### v1.0.0
 - 🎉 首次发布
