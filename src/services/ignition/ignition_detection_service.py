@@ -50,7 +50,7 @@ class IgnitionDetectionService:
         criteria = self.config['ignition_detection']['criteria']
         results = []
         
-        for i in range(6):
+        for i in range(len(ignition_flags)):
             # 跳过已检测到的通道
             if ignition_flags[i]:
                 continue

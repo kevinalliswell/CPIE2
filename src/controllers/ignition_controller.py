@@ -47,7 +47,11 @@ class IgnitionController(QObject):
         
         self.logger = logging.getLogger(__name__)
         self.config = config or {}
-        
+
+        # 通道数量（从配置读取，默认6）
+        _sample_channels = self.config.get('ignition_detection', {}).get('sample_channels', list(range(6)))
+        self.num_channels = len(_sample_channels)
+
         # 设备管理器
         self.manager = None
         
@@ -69,7 +73,7 @@ class IgnitionController(QObject):
         
         # 着火检测
         self.ignition_threshold = 500.0  # 着火温度阈值（可配置）
-        self.ignited_samples = [False] * 6  # 记录每个样品是否已着火
+        self.ignited_samples = [False] * self.num_channels  # 记录每个样品是否已着火
     
     def connect_devices(self):
         """连接设备（在后台线程中执行）"""
@@ -209,7 +213,7 @@ class IgnitionController(QObject):
             self.experiment_started.emit()
             
             # 重置着火检测状态
-            self.ignited_samples = [False] * 6
+            self.ignited_samples = [False] * self.num_channels
             
             exp_id = self.current_experiment_config.get('experiment_id', '未知')
             self.status_updated.emit(self.current_state.display_text() + f" ({exp_id})")
@@ -306,7 +310,7 @@ class IgnitionController(QObject):
         self.current_session_id = None
         self.current_experiment_config = None
         self.is_running = False
-        self.ignited_samples = [False] * 6
+        self.ignited_samples = [False] * self.num_channels
         self.logger.info("实验会话已重置")
     
     def control_temperature_controller(self, action: str):
@@ -568,7 +572,7 @@ class IgnitionController(QObject):
             if temp_module_data:
                 channels = temp_module_data.get('channels', [])
                 sample_temps = []
-                for i in range(6):
+                for i in range(self.num_channels):
                     if i < len(channels):
                         temp = channels[i].get('temperature', 0.0)
                         sample_temps.append(temp)
