@@ -146,16 +146,17 @@ class CameraCapture:
 
 		mvsdk_module = _load_mvsdk()
 		os.makedirs(save_dir, exist_ok=True)
-		image_paths: List[str] = []
+		
+		frames_in_memory: List[np.ndarray] = []
 		frame_count = 0
 		start_time = time.time()
 
-		# 预先生成时间戳，避免每帧重复计算
-		session_timestamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
-
-		print(f"开始采集 {duration} 秒...")
+		print(f"开始高速采集 {duration} 秒 (内存缓冲模式)...")
+		
+		# 第一阶段：极速采集到内存
 		while time.time() - start_time < duration:
 			try:
+				# 200ms 超时限制，对于高速采集足够
 				pRawData, FrameHead = mvsdk_module.CameraGetImageBuffer(self.hCamera, 200)
 				mvsdk_module.CameraImageProcess(self.hCamera, pRawData, self.frame_buffer, FrameHead)
 				mvsdk_module.CameraReleaseImageBuffer(self.hCamera, pRawData)
@@ -163,39 +164,49 @@ class CameraCapture:
 				if platform.system() == "Windows":
 					mvsdk_module.CameraFlipFrameBuffer(self.frame_buffer, FrameHead, 1)
 
+				# 复制数据到 numpy 数组（必须 copy 否则会被后续帧覆盖）
 				frame_data = (mvsdk_module.c_ubyte * FrameHead.uBytes).from_address(self.frame_buffer)
-				frame = np.frombuffer(frame_data, dtype=np.uint8)
+				frame = np.frombuffer(frame_data, dtype=np.uint8).copy()
 
-				expected_size = FrameHead.iHeight * FrameHead.iWidth
-				if FrameHead.uiMediaType == mvsdk_module.CAMERA_MEDIA_TYPE_MONO8:
-					expected_size *= 1
-				else:
-					expected_size *= 3
-
-				if len(frame) != expected_size:
-					continue
-
-				if FrameHead.uiMediaType == mvsdk_module.CAMERA_MEDIA_TYPE_MONO8:
-					shape = (FrameHead.iHeight, FrameHead.iWidth)
-				else:
-					shape = (FrameHead.iHeight, FrameHead.iWidth, 3)
-
-				frame = frame.reshape(shape).astype(np.uint8)
-
-				if self.is_color and self.config.get('camera.force_mono', True):
-					frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-				filename = os.path.join(save_dir, f"frame_{session_timestamp}_{frame_count:04d}.jpg")
-				cv2.imwrite(filename, frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-				image_paths.append(filename)
+				# 记录形状信息，稍后统一处理
+				is_mono = (FrameHead.uiMediaType == mvsdk_module.CAMERA_MEDIA_TYPE_MONO8)
+				shape = (FrameHead.iHeight, FrameHead.iWidth) if is_mono else (FrameHead.iHeight, FrameHead.iWidth, 3)
+				
+				frames_in_memory.append((frame.reshape(shape), is_mono))
 				frame_count += 1
-			except _CAMERA_EXCEPTION as e:  # type: ignore
+				
+			except _CAMERA_EXCEPTION as e:
 				if getattr(e, 'error_code', None) != mvsdk_module.CAMERA_STATUS_TIME_OUT:
-					print(f"采集失败: {e}")
+					print(f"采集异常: {e}")
 
 		elapsed = time.time() - start_time
-		fps = frame_count / elapsed if elapsed > 0 else 0
-		print(f"采集完成: {frame_count} 帧, 耗时 {elapsed:.3f} 秒, 帧率 {fps:.2f} FPS")
+		actual_fps = frame_count / elapsed if elapsed > 0 else 0
+		print(f"采集完成: {frame_count} 帧, 耗时 {elapsed:.3f} 秒, 实际采集帧率 {actual_fps:.2f} FPS")
+
+		# 第二阶段：批量保存到磁盘
+		print(f"正在将 {frame_count} 帧保存到磁盘...")
+		image_paths: List[str] = []
+		session_timestamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+		
+		save_start = time.time()
+		force_mono_cfg = self.config.get('camera.force_mono', True)
+		
+		for i, (frame, is_mono) in enumerate(frames_in_memory):
+			# 根据配置处理颜色空间
+			if not is_mono and force_mono_cfg:
+				frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+			
+			filename = os.path.join(save_dir, f"frame_{session_timestamp}_{i:04d}.jpg")
+			# 使用较快的压缩参数
+			cv2.imwrite(filename, frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+			image_paths.append(filename)
+			
+			if (i + 1) % 50 == 0:
+				print(f"已保存 {i + 1}/{frame_count} 帧...")
+
+		save_elapsed = time.time() - save_start
+		print(f"保存完成，耗时 {save_elapsed:.2f} 秒")
+		
 		return image_paths, frame_count
 
 	def capture_single_frame(self) -> Optional[np.ndarray]:
