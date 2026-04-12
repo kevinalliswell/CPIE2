@@ -59,11 +59,7 @@ data/backups/*.db
 src/data/*.db
 
 # Experiment Data (可根据需要调整)
-data/experiments/
-data/temp_captures/
-data/flame_results/
-data/max_flame_images/
-data/analysis_images/
+data/
 temp_captures/
 src/data/
 

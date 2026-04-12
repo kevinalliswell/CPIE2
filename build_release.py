@@ -27,7 +27,7 @@ class CPIEBuilder:
         
         # 本地包路径
         self.local_packages = {
-            "flamekit": self.project_root / "src" / "flame_package",
+            "flamekit": self.project_root / "flame_package",
             "modbus_multi_device": self.project_root / "modbus_multi_device_package"
         }
         
@@ -98,7 +98,6 @@ class CPIEBuilder:
             ("lxml", "lxml"),
             
             # 系统和工具
-            ("psutil", "psutil"),
             ("PyYAML", "yaml"),
             
             # 本地包
@@ -409,7 +408,7 @@ coll = COLLECT(
         
         cmd.append(str(spec_file))
         
-        print(f"执行命令: {' '.join(cmd)}")
+        print(f"执行命令: {subprocess.list2cmdline(cmd)}")
         print("-" * 60)
         
         try:

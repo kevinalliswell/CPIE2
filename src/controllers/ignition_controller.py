@@ -368,13 +368,10 @@ class IgnitionController(QObject):
                 },
                 priority='high'
             )
-            
-            # 等待设备处理完成
-            import time
-            time.sleep(0.5)
-            
-            self.log_message.emit(f"✓ 温控曲线已设置完成")
-            self.log_message.emit(f"提示：请检查温控仪表是否已接收到程序段参数")
+
+            # 不再阻塞等待设备回写，直接返回并记录命令已发送
+            self.log_message.emit("✓ 温控曲线设置命令已发送")
+            self.log_message.emit("提示：请检查温控仪表是否已接收到程序段参数")
             self.logger.info(f"温控曲线设置完成: {segments}")
             return True
         except Exception as e:

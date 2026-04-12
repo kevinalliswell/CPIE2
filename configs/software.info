@@ -1,5 +1,5 @@
 {
-    "version": "1.1.251121",
+    "version": "1.1.0",
     "author": "Shi Jinpeng/USTB",
     "release_date": "2025-11-21",
     "copyright": "© 2025 北京科技大学. All rights reserved.",
@@ -7,6 +7,6 @@
     "contact": "shijinpeng06@126.com",
     "website": "https://www.ustb.edu.cn",
     "build_date": "2025-11-21",
-    "python_version": "3.8+",
+    "python_version": "3.9+",
     "platforms": ["Windows", "Linux", "macOS"]
 }

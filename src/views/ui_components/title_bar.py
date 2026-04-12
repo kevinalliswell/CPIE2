@@ -1,10 +1,12 @@
 # src/ui/ui_components/title_bar.py
-import os
-from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, 
+from pathlib import Path
+
+from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout,
                                QLabel, QGraphicsOpacityEffect)
 from PySide6.QtCore import Qt, QTimer, QDateTime, QPropertyAnimation, QEasingCurve
 from PySide6.QtGui import QPixmap
 from utils.logger import get_logger
+from utils.path_manager import PathManager
 
 
 class TitleBar(QWidget):
@@ -14,8 +16,14 @@ class TitleBar(QWidget):
     - 右侧：通信状态 + 系统时间
     """
 
+    @staticmethod
+    def _resolve_logo_path() -> Path:
+        """解析标题栏 Logo 路径。"""
+        return Path(PathManager.get_resources_path("images/ustb_logo.png"))
+
     def __init__(self, software_info=None, parent=None):
         super().__init__(parent)
+        self.logo_path = self._resolve_logo_path()
         self.setObjectName("TitleBar")
 
         self.software_info = software_info or {}
@@ -83,9 +91,8 @@ class TitleBar(QWidget):
         logo_label.setAlignment(Qt.AlignCenter)
         
         # 加载PNG图片
-        logo_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "resources", "images", "ustb_logo.png")
-        if os.path.exists(logo_path):
-            pixmap = QPixmap(logo_path)
+        if self.logo_path.exists():
+            pixmap = QPixmap(str(self.logo_path))
             # 缩放图片到合适大小，使用高质量缩放
             scaled_pixmap = pixmap.scaled(50, 50, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             logo_label.setPixmap(scaled_pixmap)

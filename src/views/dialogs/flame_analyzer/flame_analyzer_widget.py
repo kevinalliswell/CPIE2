@@ -4,6 +4,7 @@
 优化版火焰分析仪UI模块
 Optimized Flame Analyzer Widget
 """
+import json
 import os
 import csv
 import shutil
@@ -430,16 +431,15 @@ class FlameAnalyzerWidget(QDialog):
     def _save_explosion_data(self, flame_size: int):
         """
         保存爆炸性数据到CSV
-        
+
         Args:
             flame_size: 火焰尺寸
         """
         try:
-            # 这里需要读取JSON配置,简化处理
-            from src.config.jason_manager import read_json
-            
-            json_data = read_json(str(self.config.exp_data_json_path))
-            
+            json_path = self.config.exp_data_json_path
+            with open(json_path, 'r', encoding='utf-8') as json_file:
+                json_data = json.load(json_file)
+
             dict_data = {
                 '检测日期': json_data.get('exp_date_time', ''),
                 '检测机构': json_data.get('exp_org', ''),
@@ -451,9 +451,11 @@ class FlameAnalyzerWidget(QDialog):
                 '爆炸性/mm': flame_size,
                 '备注信息': '',
             }
-            
+
             self._save_to_csv(dict_data)
-            
+
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"保存爆炸性数据失败: {e}")
         except Exception as e:
             print(f"保存爆炸性数据失败: {e}")
     

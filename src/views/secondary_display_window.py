@@ -7,9 +7,12 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QSplitter, QFrame
 )
+from pathlib import Path
+
 from PySide6.QtCore import Qt, Signal, QTimer
 from datetime import datetime
 
+from utils.path_manager import PathManager
 from views.ui_components.monitor_panels import (
     ExplosionMonitorPanel,
     IgnitionMonitorPanel
@@ -20,52 +23,59 @@ from views.ui_components.monitor_panels import (
 class SecondaryDisplayWindow(QMainWindow):
     """
     触摸屏副屏显示窗口
-    
+
     特点：
     - 固定1024×600分辨率
     - 触摸友好的大按钮
     - 实时监控数据显示
     - 支持两种监控模式切换
     """
-    
+
     # 信号
     window_closed = Signal()  # 窗口关闭信号
-    
+
+    @staticmethod
+    def _resolve_style_path() -> Path:
+        """解析副屏样式文件路径。"""
+        return Path(PathManager.get_styles_path("secondary_display_light.qss"))
+
     def __init__(self, explosion_controller=None, ignition_controller=None, parent=None):
         super().__init__(parent)
-        
+
+        self.secondary_style_path = self._resolve_style_path()
+
         # 保存控制器引用
         self.explosion_controller = explosion_controller
         self.ignition_controller = ignition_controller
-        
+
         # 缩放比例（根据屏幕分辨率自动计算）
         self.scale_factor = 1.0
-        
+
         # 窗口配置
         self.setWindowTitle("CPIE 触摸屏监控")
         # 不固定分辨率，让窗口适应显示器
         self.setMinimumSize(800, 480)  # 设置最小尺寸，防止过小
-        
+
         # 无边框全屏窗口
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
-        
+
         # 初始化UI
         self._init_ui()
-        
+
         # 应用样式
         self._apply_styles()
-        
+
         # 设置定时器更新时间
         self.clock_timer = QTimer(self)
         self.clock_timer.timeout.connect(self._update_time)
         self.clock_timer.start(1000)
-        
+
         # 尝试将窗口移动到第二显示器
         self._move_to_secondary_screen()
-        
+
         # 启动控制器的数据监控（用于实时数据推送）
         self._start_controllers_monitoring()
-    
+
     def _init_ui(self):
         """初始化UI"""
         # 中心widget
@@ -210,18 +220,13 @@ class SecondaryDisplayWindow(QMainWindow):
     def _apply_styles(self):
         """应用副屏专用亮色样式"""
         try:
-            import os
-            
-            # 获取样式文件路径
-            style_path = os.path.join('resources', 'styles', 'secondary_display_light.qss')
-            
-            if os.path.exists(style_path):
-                with open(style_path, 'r', encoding='utf-8') as f:
+            if self.secondary_style_path.exists():
+                with open(self.secondary_style_path, 'r', encoding='utf-8') as f:
                     style = f.read()
                     self.setStyleSheet(style)
                     print("✅ 副屏亮色样式已应用")
             else:
-                print(f"⚠ 样式文件未找到: {style_path}")
+                print(f"⚠ 样式文件未找到: {self.secondary_style_path}")
                 # 应用基础样式作为后备
                 self._apply_fallback_style()
         except Exception as e:
