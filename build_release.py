@@ -17,6 +17,24 @@ import zipfile
 import json
 from datetime import datetime
 
+
+def _configure_console_streams():
+    """Avoid UnicodeEncodeError on non-UTF-8 consoles such as Windows cp1252."""
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if stream is None or not hasattr(stream, "reconfigure"):
+            continue
+
+        try:
+            stream.reconfigure(errors="backslashreplace")
+        except Exception:
+            # Keep the original stream settings if reconfiguration is unsupported.
+            pass
+
+
+_configure_console_streams()
+
+
 class CPIEBuilder:
     def __init__(self):
         self.project_root = Path(__file__).parent.absolute()
