@@ -4,7 +4,7 @@ FlameKit - 工业相机火焰长度测试工具包
 """
 from importlib import import_module
 
-__version__ = "0.1.1"
+__version__ = "1.1.2"
 
 __all__ = ["FlameKit", "FlameAnalyzer", "__version__"]
 
