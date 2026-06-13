@@ -51,12 +51,14 @@ class ExperimentValidator:
                 return False, "无法获取温控仪表数据，请检查设备连接状态！"
             
             current_temp = controller_data.get('pv')
-            
+            if current_temp is None:
+                return False, "无法获取当前温度值（PV），请检查温控仪表数据！"
+
             # 获取当前压力值
             pressure_data = self.manager.get_latest_data('爆炸性-压力表')
             if pressure_data is None:
                 return False, "无法获取压力仪表数据，请检查设备连接状态！"
-            
+
             current_pressure = pressure_data.get('pressure', 0.0)
             
             # 检查温度是否在范围内

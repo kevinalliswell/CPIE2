@@ -600,7 +600,7 @@ class ExplosionController(QObject):
         """
         if not self.manager:
             return None
-        return self.manager.get_latest_data('爆炸性-压力仪表')
+        return self.manager.get_latest_data('爆炸性-压力表')
     
     def get_latest_relay_data(self):
         """

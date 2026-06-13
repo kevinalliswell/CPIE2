@@ -571,20 +571,21 @@ class IgnitionController(QObject):
             temp_module_data = self.get_latest_temperature_data()
             if temp_module_data:
                 channels = temp_module_data.get('channels', [])
+                # 先构建完整的样品温度快照，避免在循环中途发出不完整的列表
                 sample_temps = []
                 for i in range(self.num_channels):
                     if i < len(channels):
-                        temp = channels[i].get('temperature', 0.0)
-                        sample_temps.append(temp)
-                        
-                        # 着火检测
-                        if temp >= self.ignition_threshold and not self.ignited_samples[i]:
-                            self.ignited_samples[i] = True
-                            self.ignition_detected.emit(self.ignition_threshold, sample_temps)
-                            self.logger.info(f"检测到样品{i+1}着火: {temp}°C")
+                        sample_temps.append(channels[i].get('temperature', 0.0))
                     else:
                         sample_temps.append(0.0)
-                
+
+                # 在完整快照上进行着火检测
+                for i, temp in enumerate(sample_temps):
+                    if temp >= self.ignition_threshold and not self.ignited_samples[i]:
+                        self.ignited_samples[i] = True
+                        self.ignition_detected.emit(self.ignition_threshold, list(sample_temps))
+                        self.logger.info(f"检测到样品{i+1}着火: {temp}°C")
+
                 self.sample_temps_updated.emit(sample_temps)
             
         except Exception as e:

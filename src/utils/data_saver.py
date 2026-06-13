@@ -224,7 +224,7 @@ class DataSaver(QObject):
                     # 标准格式: 2024-01-01 10:00:00
                     dt = datetime.datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S")
                 time_str = dt.strftime("%Y%m%d_%H%M%S")
-            except:
+            except (ValueError, TypeError):
                 time_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         else:
             time_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")

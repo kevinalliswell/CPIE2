@@ -12,7 +12,7 @@ from collections import deque
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
                                QLabel, QPushButton, QTextEdit, QGridLayout,
                                QMessageBox, QCheckBox, QDialog, QApplication)
-from PySide6.QtCore import QTimer, Signal, QMetaObject, Qt
+from PySide6.QtCore import QTimer, Signal, Qt
 import pyqtgraph as pg
 from flamekit import FlameKit
 from views.dialogs.flame_analyzer.config_manager import FlameAnalyzerConfig
@@ -839,12 +839,11 @@ class ExplosionExperimentPage(QWidget):
         # 更新本地状态
         self.sequence_running = False
         
-        # 自动打开火焰分析器（使用QueuedConnection确保线程安全）
-        QMetaObject.invokeMethod(
-            self,
-            "_analyze_flame",
-            Qt.QueuedConnection
-        )
+        # 自动打开火焰分析器：延迟到当前事件处理完成后再执行，
+        # 确保 sequence_completed 信号与按钮状态先更新。
+        # 注意：_analyze_flame 是普通方法（非注册的 Qt 槽），
+        # 因此不能用 QMetaObject.invokeMethod 按名称调用，改用 singleShot 投递到事件循环。
+        QTimer.singleShot(0, self._analyze_flame)
         
         # 发送完成信号
         self.sequence_completed.emit()
