@@ -1250,7 +1250,7 @@ class IgnitionDatabase:
             
         except Exception as e:
             self.logger.error(f"✗ 生成实验结论失败: {e}")
-            return "实验数据符合标准要求。"
+            return "实验结论生成失败，请检查实验数据。"
     
     # ==================== 数据导出 ====================
     

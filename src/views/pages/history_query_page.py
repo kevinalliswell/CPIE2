@@ -582,7 +582,8 @@ class HistoryQueryPage(QWidget):
                 self.load_experiment_detail()
         else:
             self.current_experiment = None
-            self.detail_card.show_empty_state("请从左侧选择实验记录查看详情")
+            self.explosion_detail_card.show_empty_state("请从左侧选择实验记录查看详情")
+            self.ignition_detail_card.show_empty_state("请从左侧选择实验记录查看详情")
         
     def load_experiment_detail(self):
         """加载选中实验的详细信息到右侧卡片"""

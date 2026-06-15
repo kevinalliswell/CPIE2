@@ -341,7 +341,7 @@ class IgnitionExperimentPage(QWidget):
             # 运行状态 -> 停止实验
             self._on_stop()
         else:
-            self.logger.warning(f"启动/停止按钮在非法状态下被点击: {state.value}")
+            self._thread_safe_log(f"⚠ 启动/停止按钮在非法状态下被点击: {state.value}")
     
     def _on_stop(self):
         """停止实验（内部方法）"""

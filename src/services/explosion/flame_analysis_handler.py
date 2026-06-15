@@ -132,21 +132,23 @@ class FlameAnalysisHandler:
         # 计算平均值
         avg_length = self.round_manager.calculate_average(round_records)
         level_text, _ = self.round_manager.evaluate_explosion_level(avg_length)
-        
+        # 检测标准阈值来自配置（与 RoundManager 保持一致），不再硬编码
+        standard_threshold = self.round_manager.threshold_no_explosion
+
         # 如果没有指定meets_standard，则自动判断
         if meets_standard is None:
             phase_rounds = self.round_manager.phase_rounds
             max_rounds = self.round_manager.max_rounds
-            
-            # 如果只完成了前5轮且平均值<20，则不满足标准
-            if len(round_records) == phase_rounds and avg_length < 20:
+
+            # 如果只完成了前5轮且平均值低于阈值，则不满足标准
+            if len(round_records) == phase_rounds and avg_length < standard_threshold:
                 meets_standard = False
             # 如果完成了10轮，则无论结果如何都算完成了完整测试
             elif len(round_records) == max_rounds:
                 meets_standard = True
             # 其他情况（如满足标准后提前结束），根据平均值判断
             else:
-                meets_standard = avg_length >= 20
+                meets_standard = avg_length >= standard_threshold
         
         # 构建结论信息
         msg = "=" * 50 + "\n"
@@ -163,7 +165,7 @@ class FlameAnalysisHandler:
         
         # 添加标准符合性提示
         if not meets_standard:
-            msg += "\n⚠ 检测标准: 不满足（需要平均值≥20mm或完成10轮测试）\n"
+            msg += f"\n⚠ 检测标准: 不满足（需要平均值≥{standard_threshold:g}mm或完成10轮测试）\n"
         else:
             msg += "\n✓ 检测标准: 满足\n"
         
@@ -188,7 +190,8 @@ class FlameAnalysisHandler:
         
         avg_length = self.round_manager.calculate_average(round_records)
         level_text, _ = self.round_manager.evaluate_explosion_level(avg_length)
-        
+        standard_threshold = self.round_manager.threshold_no_explosion
+
         logs = []
         logs.append("=" * 50)
         logs.append("实验结论")
@@ -203,7 +206,7 @@ class FlameAnalysisHandler:
         
         # 记录标准符合性
         if not meets_standard:
-            logs.append("⚠ 检测标准: 不满足（需要平均值≥20mm或完成10轮测试）")
+            logs.append(f"⚠ 检测标准: 不满足（需要平均值≥{standard_threshold:g}mm或完成10轮测试）")
         else:
             logs.append("✓ 检测标准: 满足")
         

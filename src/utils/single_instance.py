@@ -26,9 +26,12 @@ class SingleInstance:
         lock_file_path = os.path.join(temp_dir, f"{app_name}.lock")
         
         self.lock_file = QLockFile(lock_file_path)
-        # 设置过期时间（毫秒），防止程序崩溃后锁文件无法释放
-        # 如果锁文件超过100秒没有刷新，则认为已过期
-        self.lock_file.setStaleLockTime(100000)
+        # 锁文件过期时间（毫秒），用于在程序异常崩溃后回收残留的锁文件。
+        # 注意：QLockFile 不会周期性刷新锁文件的时间戳，过期时间是一个“绝对上限”，
+        # 而非心跳间隔。它本身已能通过记录的 PID 自动识别并清理“持有进程已退出”的锁，
+        # 因此这里设置一个较大的值（8 小时），避免长时间运行的实验过程中
+        # 锁被误判为过期，从而允许第二个实例启动并同时写入同一数据库。
+        self.lock_file.setStaleLockTime(8 * 60 * 60 * 1000)
         
         self._is_locked = False
     
