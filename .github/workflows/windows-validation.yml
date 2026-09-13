@@ -1,0 +1,122 @@
+name: Windows validation
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_call:
+    inputs:
+      ref:
+        description: Exact source revision to validate
+        type: string
+        required: false
+        default: ''
+    secrets:
+      FLAMEKIT_DEPLOY_KEY:
+        description: Read-only deploy key scoped to kevinalliswell/flame-package
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Python 3.9 / Windows / source and frozen smoke
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: utf-8
+      QT_QPA_PLATFORM: offscreen
+      MPLBACKEND: Agg
+      FLAMEKIT_COMMIT: 114f457c46689180a33fa1122809e926ec46de12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+            modbus_multi_device_package/pyproject.toml
+      - name: Check private dependency authorization
+        shell: python
+        env:
+          FLAMEKIT_DEPLOY_KEY: ${{ secrets.FLAMEKIT_DEPLOY_KEY }}
+        run: |
+          import os
+          if not os.environ.get('FLAMEKIT_DEPLOY_KEY'):
+              raise SystemExit('Configure FLAMEKIT_DEPLOY_KEY: a dedicated read-only deploy key for the private kevinalliswell/flame-package repository. Personal account tokens are not required.')
+      - name: Check out the immutable private FlameKit dependency
+        uses: actions/checkout@v4
+        with:
+          repository: kevinalliswell/flame-package
+          ref: ${{ env.FLAMEKIT_COMMIT }}
+          ssh-key: ${{ secrets.FLAMEKIT_DEPLOY_KEY }}
+          persist-credentials: false
+          path: .ci-dependencies/flamekit
+      - name: Install validated runtime and test dependencies
+        shell: python
+        run: |
+          import os, subprocess, sys
+          from pathlib import Path
+          source = Path('.ci-dependencies/flamekit').resolve()
+          actual = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
+          assert actual == os.environ['FLAMEKIT_COMMIT'], actual
+          # Only this exact repository URL is redirected, only for pip's
+          # child processes. No global git configuration or secret survives
+          # checkout. pip still records the original VCS URL and commit.
+          env = os.environ.copy()
+          env['GIT_CONFIG_COUNT'] = '1'
+          env['GIT_CONFIG_KEY_0'] = 'url.' + source.as_uri() + '.insteadOf'
+          env['GIT_CONFIG_VALUE_0'] = 'https://github.com/kevinalliswell/flame-package.git'
+          subprocess.run([sys.executable, '-m', 'pip', 'install', '-r', 'requirements-dev.txt', '-e', 'modbus_multi_device_package'], env=env, check=True)
+      - name: Verify dependency consistency and Python syntax
+        run: |
+          python -m pip check
+          python -m compileall -q src scripts build_release.py modbus_multi_device_package/modbus_multi_device
+      - name: Run all automated tests
+        run: python -m pytest --junitxml=artifacts/pytest-windows.xml
+      - name: Source startup, recovery, export and shutdown smoke
+        run: python scripts/smoke_check.py --source --output artifacts/source-smoke.json
+      - name: Build release candidate
+        run: python build_release.py
+      - name: Frozen executable startup, recovery, export and shutdown smoke
+        run: python scripts/smoke_check.py --executable dist/CPIE/CPIE.exe --output artifacts/frozen-smoke.json
+      - name: Verify candidate checksum and exact source metadata
+        shell: python
+        run: |
+          import hashlib, json, subprocess
+          from pathlib import Path
+          expected = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          packages = list(Path('release').glob('*.zip'))
+          assert len(packages) == 1, packages
+          package = packages[0]
+          info = json.loads(package.with_name(package.stem + '_info.json').read_text(encoding='utf-8'))
+          digest = hashlib.sha256(package.read_bytes()).hexdigest()
+          assert info['package_sha256'] == digest
+          assert package.with_suffix('.zip.sha256').read_text().split()[0] == digest
+          assert info['source_commit'] == expected
+          assert info['source_dirty'] is False
+          assert info['flamekit_commit'] == '114f457c46689180a33fa1122809e926ec46de12'
+          assert info['dependencies']['pymodbus'] == '3.8.6'
+      - name: Upload test and smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-validation-evidence
+          path: artifacts/
+          if-no-files-found: error
+      - name: Upload verified release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-candidate
+          path: release/
+          if-no-files-found: error
+          retention-days: 30

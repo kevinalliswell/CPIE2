@@ -12,6 +12,9 @@ import shutil
 import subprocess
 import platform
 import argparse
+import hashlib
+import importlib.metadata
+import re
 from pathlib import Path
 import zipfile
 import json
@@ -45,7 +48,6 @@ class CPIEBuilder:
         
         # 本地包路径
         self.local_packages = {
-            "flamekit": self.project_root / "flame_package",
             "modbus_multi_device": self.project_root / "modbus_multi_device_package"
         }
         
@@ -58,6 +60,8 @@ class CPIEBuilder:
             info = json.load(f)
         self.app_name = info.get("name", "CPIE") if "name" in info else "CPIE"
         self.app_version = info.get("version", "1.0.0")
+        if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", self.app_version):
+            raise ValueError("软件版本必须是 X.Y.Z 或 X.Y.Z-prerelease")
         self.app_description = info.get("description", "")
         self.main_script = self.src_dir / "app.py"
         
@@ -84,9 +88,8 @@ class CPIEBuilder:
             import PyInstaller
             print(f"✓ PyInstaller 已安装: {PyInstaller.__version__}")
         except ImportError:
-            print("✗ PyInstaller 未安装，正在安装...")
-            subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller"], check=True)
-            print("✓ PyInstaller 安装完成")
+            print("✗ 缺少 PyInstaller，请先安装 requirements-dev.txt")
+            return False
         
         # 检查主要依赖 (包括新增的包)
         required_packages = [
@@ -114,6 +117,7 @@ class CPIEBuilder:
             ("python-docx", "docx"),
             ("reportlab", "reportlab"),
             ("lxml", "lxml"),
+            ("openpyxl", "openpyxl"),
             
             # 系统和工具
             ("PyYAML", "yaml"),
@@ -184,15 +188,9 @@ class CPIEBuilder:
                 shutil.rmtree(dir_path)
                 print(f"✓ 已清理: {dir_path}")
         
-        # 清理 spec 文件
-        spec_files = list(self.project_root.glob("*.spec"))
-        for spec_file in spec_files:
-            spec_file.unlink()
-            print(f"✓ 已删除: {spec_file}")
-        
         print("-" * 60)
 
-    def create_spec_file(self):
+    def create_spec_file(self, debug=False):
         """创建 PyInstaller spec 文件"""
         print("\n创建 PyInstaller spec 文件...")
         print("-" * 60)
@@ -204,6 +202,7 @@ class CPIEBuilder:
 
 import sys
 from pathlib import Path
+from PyInstaller.utils.hooks import collect_data_files, copy_metadata
 
 block_cipher = None
 
@@ -219,6 +218,8 @@ datas = [
     (str(project_root / "configs"), "configs"),
     (str(project_root / "resources"), "resources"),
 ]
+datas += collect_data_files("flamekit", includes=["*.json"])
+datas += copy_metadata("flamekit")
 
 # 隐藏导入 - 完整列表
 hiddenimports = [
@@ -262,7 +263,6 @@ hiddenimports = [
     "serial.tools.list_ports",
     "pymodbus",
     "pymodbus.client",
-    "pymodbus.client.sync",
     
     # 文档处理
     "docx",
@@ -275,17 +275,19 @@ hiddenimports = [
     "reportlab.platypus",
     "lxml",
     "lxml.etree",
+    "openpyxl",
     
     # 系统和工具
-    "psutil",
     "yaml",
     
     # 本地包
     "flamekit",
     "flamekit.analyzer",
-    "flamekit.detector",
+    "flamekit.camera",
+    "flamekit.config",
+    "flamekit.mvsdk",
     "modbus_multi_device",
-    "modbus_multi_device.client",
+    "scripts.smoke_check",
     
     # Python 标准库
     "unittest",                            # ⭐ 单元测试框架 (numpy/scipy 需要)
@@ -375,11 +377,11 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name="{self.app_name}",
-    debug=False,
+    debug={debug!r},
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,  # Windows 下不显示控制台
+    console={debug!r},  # 调试参数必须写入 spec；spec 构建不接受 --debug
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -401,7 +403,8 @@ coll = COLLECT(
 )
 '''
         
-        spec_file = self.project_root / f"{self.app_name}.spec"
+        self.build_dir.mkdir(parents=True, exist_ok=True)
+        spec_file = self.build_dir / f"{self.app_name}.spec"
         with open(spec_file, 'w', encoding='utf-8') as f:
             f.write(spec_content)
         
@@ -420,9 +423,6 @@ coll = COLLECT(
             "--clean",
             "--noconfirm",
         ]
-        
-        if debug:
-            cmd.append("--debug=all")
         
         cmd.append(str(spec_file))
         
@@ -486,121 +486,97 @@ coll = COLLECT(
             print(f"✓ 已创建目录: {dir_path}")
         
         # 复制文档文件
-        doc_files = ["README.md", "requirements.txt", "CHANGELOG.md", "LICENSE"]
+        doc_files = [
+            "README.md", "QUICK_START.md", "BUILD_GUIDE.md", "requirements.txt",
+            "CHANGELOG.md", "LICENSE", "docs/HARDWARE_ACCEPTANCE.md",
+        ]
         for doc_file in doc_files:
             src_file = self.project_root / doc_file
             if src_file.exists():
                 dst_file = app_dir / doc_file
+                dst_file.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src_file, dst_file)
                 print(f"✓ 已复制文档: {dst_file}")
+
+        (app_dir / "build_info.json").write_text(
+            json.dumps(self.get_build_metadata(), ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
         
         print("-" * 60)
         return True
 
     def create_installer_script(self):
-        """创建安装脚本"""
-        print("\n创建安装脚本...")
-        print("-" * 60)
-        
-        app_dir = self.dist_dir / self.app_name
-        
+        """Install for the current user, preserving experimental data and settings."""
+        self.dist_dir.mkdir(parents=True, exist_ok=True)
         if self.platform == "windows":
-            # Windows 批处理安装脚本
-            install_script = f'''@echo off
+            install_script = r'''@echo off
+setlocal
 chcp 65001 >nul
-echo ============================================================
-echo CPIE {self.app_version} 安装脚本
-echo ============================================================
-echo.
-
-set "INSTALL_DIR=%PROGRAMFILES%\\CPIE"
-echo 安装目录: %INSTALL_DIR%
-echo.
-
-if not exist "%INSTALL_DIR%" (
-    echo 创建安装目录...
-    mkdir "%INSTALL_DIR%"
-)
-
-echo 复制文件...
-xcopy /E /I /Y "{self.app_name}" "%INSTALL_DIR%"
-
-echo 创建桌面快捷方式...
-set "SHORTCUT=%USERPROFILE%\\Desktop\\CPIE.lnk"
-powershell -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%SHORTCUT%'); $s.TargetPath = '%INSTALL_DIR%\\{self.app_name}.exe'; $s.WorkingDirectory = '%INSTALL_DIR%'; $s.Description = '{self.app_description}'; $s.Save()"
-
-echo.
-echo ============================================================
-echo 安装完成！
-echo ============================================================
-echo 可执行文件: %INSTALL_DIR%\\{self.app_name}.exe
-echo 桌面快捷方式: %SHORTCUT%
-echo ============================================================
-echo.
-pause
+if not defined LOCALAPPDATA exit /b 1
+set "INSTALL_DIR=%LOCALAPPDATA%\Programs\CPIE"
+set "SOURCE_DIR=%~dp0CPIE"
+if not exist "%SOURCE_DIR%\CPIE.exe" exit /b 1
+if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
+if errorlevel 1 exit /b 1
+rem User records and existing configuration must survive an upgrade.
+robocopy "%SOURCE_DIR%" "%INSTALL_DIR%" /E /XD configs data logs exports /R:2 /W:1 /NFL /NDL
+if errorlevel 8 exit /b 1
+rem Only install new configuration files; never overwrite existing settings.
+robocopy "%SOURCE_DIR%\configs" "%INSTALL_DIR%\configs" /E /XC /XN /XO /R:2 /W:1 /NFL /NDL
+if errorlevel 8 exit /b 1
+powershell -NoProfile -Command "$ErrorActionPreference='Stop'; $desktop=[Environment]::GetFolderPath('Desktop'); New-Item -ItemType Directory -Force -Path $desktop | Out-Null; $ws=New-Object -ComObject WScript.Shell; $s=$ws.CreateShortcut((Join-Path $desktop 'CPIE.lnk')); $s.TargetPath=Join-Path $env:INSTALL_DIR 'CPIE.exe'; $s.WorkingDirectory=$env:INSTALL_DIR; $s.Save()"
+if errorlevel 1 exit /b 1
+echo CPIE installed to "%INSTALL_DIR%". Existing data and settings were preserved.
+exit /b 0
 '''
-            
-            script_file = app_dir.parent / "install.bat"
-            with open(script_file, 'w', encoding='utf-8') as f:
-                f.write(install_script)
-                
+            script_file = self.dist_dir / "install.bat"
+            with script_file.open("w", encoding="utf-8", newline="\r\n") as stream:
+                stream.write(install_script)
         else:
-            # Unix 安装脚本
-            install_script = f'''#!/bin/bash
-echo "============================================================"
-echo "CPIE {self.app_version} 安装脚本"
-echo "============================================================"
-echo
-
-INSTALL_DIR="/opt/CPIE"
-echo "安装目录: $INSTALL_DIR"
-echo
-
-if [ ! -d "$INSTALL_DIR" ]; then
-    echo "创建安装目录..."
-    sudo mkdir -p "$INSTALL_DIR"
-fi
-
-echo "复制文件..."
-sudo cp -r "{self.app_name}" "$INSTALL_DIR/"
-sudo chmod +x "$INSTALL_DIR/{self.app_name}/{self.app_name}"
-
-echo "创建系统链接..."
-sudo ln -sf "$INSTALL_DIR/{self.app_name}/{self.app_name}" "/usr/local/bin/CPIE"
-
-echo "创建桌面快捷方式..."
-DESKTOP_FILE="$HOME/Desktop/CPIE.desktop"
-cat > "$DESKTOP_FILE" << EOF
-[Desktop Entry]
-Version=1.0
-Type=Application
-Name=CPIE
-Comment={self.app_description}
-Exec=$INSTALL_DIR/{self.app_name}/{self.app_name}
-Icon=$INSTALL_DIR/{self.app_name}/resources/images/cpie_logo_square_512x512.png
-Terminal=false
-Categories=Science;
-EOF
-chmod +x "$DESKTOP_FILE"
-
-echo
-echo "============================================================"
-echo "安装完成！"
-echo "============================================================"
-echo "可执行文件: $INSTALL_DIR/{self.app_name}/{self.app_name}"
-echo "命令行启动: CPIE"
-echo "桌面快捷方式: $DESKTOP_FILE"
-echo "============================================================"
-echo
-'''
-            
-            script_file = app_dir.parent / "install.sh"
-            with open(script_file, 'w', encoding='utf-8') as f:
-                f.write(install_script)
+            # Portable operation is also the default on macOS/Linux. No sudo or
+            # system directory changes are needed to run an extracted package.
+            script_file = self.dist_dir / "install.sh"
+            script_file.write_text(
+                '#!/bin/sh\nset -eu\n'
+                'cd "$(dirname "$0")"\n'
+                'echo "CPIE uses portable mode. Keep this folder in a user-writable location."\n'
+                'chmod u+x CPIE/CPIE\n'
+                'echo "Start with: ./CPIE/CPIE"\n',
+                encoding="utf-8",
+            )
             script_file.chmod(0o755)
-        
         print(f"✓ 安装脚本已创建: {script_file}")
-        print("-" * 60)
+
+    def get_build_metadata(self):
+        """Record exactly which source and installed packages produced the build."""
+        source_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=self.project_root, text=True
+        ).strip()
+        source_dirty = bool(subprocess.check_output(
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            cwd=self.project_root, text=True,
+        ).strip())
+        dependencies = {
+            distribution.metadata["Name"]: distribution.version
+            for distribution in importlib.metadata.distributions()
+            if distribution.metadata.get("Name")
+        }
+        flamekit_distribution = importlib.metadata.distribution("flamekit")
+        direct_url = json.loads(flamekit_distribution.read_text("direct_url.json") or "{}")
+        return {
+            "app_name": self.app_name,
+            "app_version": self.app_version,
+            "app_description": self.app_description,
+            "platform": self.platform,
+            "architecture": self.arch,
+            "python_version": platform.python_version(),
+            "build_time": datetime.now().astimezone().isoformat(),
+            "source_commit": source_commit,
+            "source_dirty": source_dirty,
+            "dependencies": dict(sorted(dependencies.items(), key=lambda item: item[0].lower())),
+            "flamekit_commit": direct_url.get("vcs_info", {}).get("commit_id"),
+        }
 
     def create_release_package(self):
         """创建发布包"""
@@ -641,18 +617,19 @@ echo
         print(f"  文件大小: {file_size_mb:.1f} MB")
         
         # 创建发布信息文件
-        release_info = {
-            "app_name": self.app_name,
-            "app_version": self.app_version,
-            "app_description": self.app_description,
-            "platform": self.platform,
-            "architecture": self.arch,
-            "python_version": sys.version,
-            "build_time": datetime.now().isoformat(),
+        package_sha256 = hashlib.sha256()
+        with package_file.open("rb") as archive:
+            for chunk in iter(lambda: archive.read(1024 * 1024), b""):
+                package_sha256.update(chunk)
+        release_info = self.get_build_metadata()
+        release_info.update({
             "package_file": package_file.name,
-            "package_size_mb": round(file_size_mb, 1),
-            "local_packages": list(self.local_packages.keys())
-        }
+            "package_size_bytes": package_file.stat().st_size,
+            "package_sha256": package_sha256.hexdigest(),
+        })
+        package_file.with_suffix(".zip.sha256").write_text(
+            f"{package_sha256.hexdigest()}  {package_file.name}\n", encoding="ascii"
+        )
         
         info_file = self.release_dir / f"{package_name}_info.json"
         with open(info_file, 'w', encoding='utf-8') as f:
@@ -695,7 +672,12 @@ echo
             self.app_name + (".exe" if self.platform == "windows" else ""),
             "configs",
             "resources",
-            "resources/styles"
+            "resources/styles",
+            "configs/software.info",
+            "configs/experiment_config.yaml",
+            "configs/flame_analyzer_config.yaml",
+            "_internal/flamekit/config_default.json",
+            "build_info.json",
         ]
         
         all_ok = True
@@ -767,7 +749,7 @@ echo
                 self.clean_build()
             
             # 5. 创建 spec 文件
-            spec_file = self.create_spec_file()
+            spec_file = self.create_spec_file(debug=debug)
             
             # 6. 构建应用程序
             if not self.build_application(spec_file, debug):
@@ -779,7 +761,8 @@ echo
             
             # 8. 验证构建结果
             if not self.verify_build():
-                print("⚠ 构建验证失败，但继续进行")
+                print("✗ 构建验证失败，不生成发布包")
+                return False
             
             # 9. 创建安装脚本
             self.create_installer_script()

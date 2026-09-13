@@ -1,41 +1,54 @@
 from pathlib import Path
+import argparse
 import sys
 
-from PySide6.QtWidgets import QApplication
-
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-SRC_DIR = PROJECT_ROOT / "src"
-
+SRC_DIR = PROJECT_ROOT / 'src'
 for path in (PROJECT_ROOT, SRC_DIR):
-    path_str = str(path)
-    if path_str not in sys.path:
-        sys.path.insert(0, path_str)
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
-from src.utils.single_instance import SingleInstance
-from src.utils.tools import Tools
-from src.views.main_window import MainWindow
+
+def recover_interrupted_sessions(window):
+    """Recover once, after the application lock and controller initialization."""
+    recovered = {}
+    for index, name in ((1, 'explosion'), (2, 'ignition')):
+        database = window.stacked_widget.widget(index).controller.db
+        recovered[name] = database.recover_interrupted_sessions()
+    if any(recovered.values()):
+        window.logger.warning('已恢复中断实验会话: %s', recovered)
+        window.stacked_widget.widget(3).load_experiments()
+    return recovered
 
 
 def main() -> int:
+    if '--smoke-test' in sys.argv:
+        parser = argparse.ArgumentParser(description='Isolated, hardware-free startup verification')
+        parser.add_argument('--smoke-test', action='store_true')
+        parser.add_argument('--smoke-output', required=True)
+        options = parser.parse_args()
+        from scripts.smoke_check import application_smoke
+        return application_smoke(options.smoke_output)
+
+    from PySide6.QtWidgets import QApplication
+    from src.utils.single_instance import SingleInstance
+    from src.utils.tools import Tools
+    from src.views.main_window import MainWindow
+
     app = QApplication(sys.argv)
-
-    # 单实例检测
-    single_instance = SingleInstance("CPIE")
-
+    single_instance = SingleInstance('CPIE')
     if not single_instance.try_lock():
         SingleInstance.show_already_running_message()
         return 0
-
     try:
-        Tools.apply_stylesheet("dark")
-
+        Tools.apply_stylesheet('dark')
         window = MainWindow()
+        recover_interrupted_sessions(window)
         window.show()
         return app.exec()
     finally:
         single_instance.unlock()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     sys.exit(main())
