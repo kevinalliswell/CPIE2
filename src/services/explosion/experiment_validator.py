@@ -6,6 +6,9 @@
 """
 
 
+import math
+
+
 class ExperimentValidator:
     """实验条件验证器"""
     
@@ -51,7 +54,7 @@ class ExperimentValidator:
                 return False, "无法获取温控仪表数据，请检查设备连接状态！"
             
             current_temp = controller_data.get('pv')
-            if current_temp is None:
+            if not isinstance(current_temp, (int, float)) or isinstance(current_temp, bool) or not math.isfinite(current_temp):
                 return False, "无法获取当前温度值（PV），请检查温控仪表数据！"
 
             # 获取当前压力值
@@ -59,7 +62,9 @@ class ExperimentValidator:
             if pressure_data is None:
                 return False, "无法获取压力仪表数据，请检查设备连接状态！"
 
-            current_pressure = pressure_data.get('pressure', 0.0)
+            current_pressure = pressure_data.get('pressure')
+            if not isinstance(current_pressure, (int, float)) or isinstance(current_pressure, bool) or not math.isfinite(current_pressure):
+                return False, "压力数据无效，请检查压力仪表！"
             
             # 检查温度是否在范围内
             temp_min = target_temp - temp_tolerance

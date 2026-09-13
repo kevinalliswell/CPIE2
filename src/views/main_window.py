@@ -341,48 +341,38 @@ class MainWindow(QMainWindow):
             event.ignore()
             return
 
-        try:
-            self.logger.info("开始关闭应用程序...")
-            
-            # 关闭副屏窗口
-            if self.secondary_display_window is not None:
-                try:
-                    self.secondary_display_window.close()
-                    self.logger.info("副屏窗口已关闭")
-                except Exception as e:
-                    self.logger.error(f"关闭副屏窗口失败: {e}")
-                finally:
-                    self.secondary_display_window = None
-            
-            # 停止所有实验并清理资源
-            self._on_stop_all_experiments()
-            
-            self.logger.info("应用程序关闭完成")
-        except Exception as e:
-            self.logger.error(f"处理关闭事件出错: {e}")
-        finally:
-            # 确保调用父类的closeEvent
-            super().closeEvent(event)
+        if not self._on_stop_all_experiments():
+            QMessageBox.critical(
+                self, "退出未完成",
+                "设备停止或实验保存未确认，窗口将保持打开。请检查设备与日志后重试退出。",
+            )
+            event.ignore()
+            return
+        if self.secondary_display_window is not None:
+            self.secondary_display_window.close()
+            self.secondary_display_window = None
+        self.logger.info("应用程序关闭完成")
+        super().closeEvent(event)
 
     def _on_stop_all_experiments(self):
-        """停止实验：停止所有进程，防止资源泄露"""
-        try:
-            self.logger.info("开始停止所有实验并清理资源...")
-            
-            # 停止所有页面的实验并清理资源
-            for i in range(self.stacked_widget.count()):
-                page = self.stacked_widget.widget(i)
-                if page:
-                    # 清理页面资源
-                    if hasattr(page, 'cleanup'):
-                        try:
-                            page.cleanup()
-                            self.logger.debug(f"页面 {i} 资源已清理")
-                        except Exception as e:
-                            self.logger.error(f"清理页面 {i} 资源失败: {e}")
-            
-            # 停止副屏窗口的数据监控（已在closeEvent中处理）
-            
-            self.logger.info("所有实验已停止，资源清理完成")
-        except Exception as e:
-            self.logger.error(f"停止所有实验时出错: {e}")
+        """Prepare every device before closing any page's database or resources."""
+        pages = [self.stacked_widget.widget(i) for i in range(self.stacked_widget.count())]
+        prepared = True
+        for page in pages:
+            try:
+                if hasattr(page, 'prepare_shutdown') and page.prepare_shutdown() is False:
+                    prepared = False
+            except Exception as error:
+                self.logger.error("停止设备或保存会话失败: %s", error)
+                prepared = False
+        if not prepared:
+            return False
+        cleaned = True
+        for page in pages:
+            try:
+                if hasattr(page, 'cleanup') and page.cleanup() is False:
+                    cleaned = False
+            except Exception as error:
+                self.logger.error("页面资源清理失败: %s", error)
+                cleaned = False
+        return cleaned

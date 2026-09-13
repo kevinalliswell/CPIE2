@@ -6,6 +6,9 @@
 """
 
 
+import math
+
+
 class TemperatureConditionValidator:
     """温度条件验证器"""
     
@@ -39,8 +42,8 @@ class TemperatureConditionValidator:
                 return False, "无法获取温控仪表数据，请检查设备连接状态！"
             
             current_pv = controller_data.get('pv')
-            if current_pv is None:
-                return False, "无法获取当前温度值，请检查设备连接状态！"
+            if not isinstance(current_pv, (int, float)) or isinstance(current_pv, bool) or not math.isfinite(current_pv):
+                return False, "温度数据无效，请检查设备连接状态！"
             
             # 检查温度是否小于采集起始温度
             collect_start_temp = self.config.get('collect_start_temperature', 200.0)

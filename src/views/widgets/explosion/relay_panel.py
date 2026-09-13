@@ -53,7 +53,7 @@ class RelayPanelWidget(QGroupBox):
             layout.addWidget(QLabel(f"{chinese_name}"), row, col_offset)
             
             # 继电器状态
-            status_label = QLabel("关闭")
+            status_label = QLabel("未知")
             status_label.setStyleSheet(
                 "padding: 2px 6px; background-color: #666; color: white; "
                 "border-radius: 3px; font-weight: bold; font-size: 8pt; min-height: 24px; max-height: 24px;"
@@ -87,7 +87,10 @@ class RelayPanelWidget(QGroupBox):
         """
         label = self.relay_labels.get(relay_num)
         if label:
-            if state:
+            if not isinstance(state, bool):
+                label.setText("未知")
+                label.setStyleSheet("padding: 5px; background-color: #996600; color: white; border-radius: 3px;")
+            elif state:
                 label.setText("导通")
                 label.setStyleSheet(
                     "padding: 5px; background-color: #4caf50; color: white; "
@@ -109,8 +112,7 @@ class RelayPanelWidget(QGroupBox):
         """
         for relay_name, relay_num in self.config['relay_mapping'].items():
             relay_key = f'relay_{relay_num}'
-            if relay_key in relays:
-                self.update_relay_status(relay_num, relays[relay_key])
+            self.update_relay_status(relay_num, relays.get(relay_key))
     
     def set_clean_buttons_enabled(self, enabled: bool):
         """
@@ -121,4 +123,3 @@ class RelayPanelWidget(QGroupBox):
         """
         self.btn_auto_clean_on.setEnabled(enabled)
         self.btn_auto_clean_off.setEnabled(enabled)
-

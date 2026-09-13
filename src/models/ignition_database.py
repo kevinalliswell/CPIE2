@@ -904,6 +904,9 @@ class IgnitionDatabase:
             """, (datetime.now(), status, session_id))
             
             self.conn.commit()
+            if self.cursor.rowcount == 0:
+                self.logger.error(f"✗ 未找到会话 ID: {session_id}")
+                return False
             self.logger.info(f"✓ 实验会话已结束，ID: {session_id}, 状态: {status}")
             return True
         except sqlite3.Error as e:
@@ -911,6 +914,32 @@ class IgnitionDatabase:
             self.conn.rollback()
             return False
     
+    def recover_interrupted_sessions(self) -> int:
+        """仅在启动取得单实例锁后调用，关闭上次进程遗留的未结束会话。
+
+        返回恢复数量；数据库失败抛出异常。结束时间是恢复检测时间，
+        不是实测结束时刻，不修改采样、检测结果或已经结束的会话。
+        """
+        detected_at = datetime.now()
+        note = (f"【启动恢复】恢复检测时间：{detected_at}。上次会话未正常结束，"
+                "标记为异常；end_time 为本次恢复检测时间，不是实测结束时间。")
+        try:
+            with self.conn:
+                cursor = self.conn.execute("""
+                    UPDATE experiment_sessions
+                    SET end_time = ?, status = 'error',
+                        description = CASE WHEN COALESCE(description, '') = '' THEN ?
+                            ELSE description || char(10) || ? END
+                    WHERE end_time IS NULL AND status IN ('running', 'prepared', 'error')
+                """, (detected_at, note, note))
+                recovered = cursor.rowcount
+            if recovered:
+                self.logger.warning(f"启动恢复了 {recovered} 个未正常结束的着火点会话")
+            return recovered
+        except sqlite3.Error:
+            self.logger.exception("恢复未结束的着火点会话失败")
+            raise
+
     # ==================== 查 (Read) ====================
     
     def get_data_by_id(self, record_id: int) -> Optional[Dict]:
@@ -1435,4 +1464,3 @@ if __name__ == "__main__":
     print("测试完成")
     print("="*50)
     db.close()
-

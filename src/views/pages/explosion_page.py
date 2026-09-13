@@ -8,6 +8,7 @@
 import os
 import shutil
 import time
+import math
 from collections import deque
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
                                QLabel, QPushButton, QTextEdit, QGridLayout,
@@ -920,7 +921,7 @@ class ExplosionExperimentPage(QWidget):
         state = self.controller.current_state
         
         # 如果正在运行，执行停止操作
-        if state == ExplosionExperimentState.SEQUENCE_RUNNING:
+        if state in {ExplosionExperimentState.SEQUENCE_RUNNING, ExplosionExperimentState.ERROR}:
             self.controller.stop_experiment()
             return
         
@@ -992,13 +993,8 @@ class ExplosionExperimentPage(QWidget):
         )
         
         if reply == QMessageBox.Yes:
-            # 6. 更新状态并调用finalize_experiment
-            self.controller._set_state(ExplosionExperimentState.COMPLETED)
-            db_status = self.controller.current_state.to_db_status()
-            success = self.controller.finalize_experiment(
-                self.current_session_id,
-                status=db_status if db_status else 'completed'
-            )
+            # 控制器在成功保存后转换状态并清理会话。
+            success = self.controller.finalize_experiment(self.current_session_id)
 
             if success:
                 self.log_message.emit("=" * 50)
@@ -1564,43 +1560,35 @@ class ExplosionExperimentPage(QWidget):
         # 更新图表
         self._update_chart()
     
+    @staticmethod
+    def _valid_reading(value):
+        return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
     def _update_controller_data(self):
-        """更新温控仪表数据"""
-        data = self.manager.get_latest_data('爆炸性-温控仪表')
-        if data:
-            pv = data.get('pv')
-            sv = data.get('sv')
-            mv = data.get('mv')
-            
-            self.lbl_pv.setText(f"{pv:.1f} °C" if pv is not None else "-- °C")
-            self.lbl_sv.setText(f"{sv:.1f} °C" if sv is not None else "-- °C")
-            self.lbl_mv.setText(f"{mv:.1f} %" if mv is not None else "-- %")
-            
-            # 记录温度历史
-            if pv is not None and self.start_time:
-                current_time = time.time() - self.start_time
-                self.time_history.append(current_time)
-                self.temp_history.append(pv)
-    
+        data = self.manager.get_latest_data('爆炸性-温控仪表') or {}
+        for key, label, unit in [('pv', self.lbl_pv, '°C'), ('sv', self.lbl_sv, '°C'), ('mv', self.lbl_mv, '%')]:
+            value = data.get(key)
+            label.setText(f"{value:.1f} {unit}" if self._valid_reading(value) else f"-- {unit}")
+
     def _update_relay_status(self):
-        """更新继电器状态（使用组件）"""
-        data = self.manager.get_latest_data('爆炸性-继电器')
-        if data:
-            relays = data.get('relays', {})
-            # 使用组件更新继电器状态
-            self.relay_panel.update_all_relay_status(relays)
-    
+        data = self.manager.get_latest_data('爆炸性-继电器') or {}
+        self.relay_panel.update_all_relay_status(data.get('relays') or {})
+
     def _update_pressure_data(self):
-        """更新压力仪表数据"""
-        data = self.manager.get_latest_data('爆炸性-压力表')
-        if data:
-            pressure = data.get('pressure', 0.0)
-            self.lbl_pressure.setText(f"{pressure:.1f} kPa" if pressure is not None else "-- kPa")
-            
-            # 记录压力历史
-            if pressure is not None and self.start_time:
-                self.pressure_history.append(pressure)
-    
+        data = self.manager.get_latest_data('爆炸性-压力表') or {}
+        pressure = data.get('pressure')
+        self.lbl_pressure.setText(f"{pressure:.1f} kPa" if self._valid_reading(pressure) else "-- kPa")
+        controller_data = self.manager.get_latest_data('爆炸性-温控仪表') or {}
+        pv = controller_data.get('pv')
+        sample_ids = (controller_data.get('sample_id'), data.get('sample_id'))
+        if (self.start_time and self._valid_reading(pv) and self._valid_reading(pressure)
+                and all(isinstance(value, int) for value in sample_ids)
+                and sample_ids != getattr(self, '_last_plot_sample_ids', None)):
+            self._last_plot_sample_ids = sample_ids
+            self.time_history.append(time.time() - self.start_time)
+            self.temp_history.append(pv)
+            self.pressure_history.append(pressure)
+
     def _update_chart(self):
         """更新图表（使用组件）"""
         if self.time_history and self.temp_history:
@@ -1796,44 +1784,27 @@ class ExplosionExperimentPage(QWidget):
         if callback:
             callback(reply == QMessageBox.Yes)
     
-    def cleanup(self):
-        """
-        清理页面资源：停止定时器、释放相机、关闭数据库、清理控制器
-        """
-        try:
-            # 停止更新定时器
-            if hasattr(self, 'update_timer') and self.update_timer:
-                self.update_timer.stop()
-            
-            # 停止实验
-            if self.is_running or self.sequence_running:
-                self._on_stop()
-            
-            # 释放相机资源
-            if hasattr(self, 'flame_kit') and self.flame_kit:
-                try:
-                    if hasattr(self.flame_kit, 'release'):
-                        self.flame_kit.release()
-                except Exception as e:
-                    print(f"释放相机资源失败: {e}")
-            
-            # 关闭火焰分析器窗口
-            if hasattr(self, 'flame_analyzer_window') and self.flame_analyzer_window:
-                try:
-                    self.flame_analyzer_window.close()
-                except Exception:
-                    pass
-            
-            # 数据库由Controller管理，无需在此关闭
-            
-            # 清理控制器资源
-            if hasattr(self, 'controller') and self.controller:
-                try:
-                    if hasattr(self.controller, 'cleanup'):
-                        self.controller.cleanup()
-                except Exception as e:
-                    print(f"清理控制器资源失败: {e}")
-            
-        except Exception as e:
-            print(f"清理页面资源时出错: {e}")
+    def prepare_shutdown(self):
+        if not self.controller.prepare_shutdown():
+            return False
+        self.is_running = False
+        self.sequence_running = False
+        self.current_session_id = self.controller.current_session_id
+        self.current_exp_config = self.controller.current_exp_config
+        self.update_timer.stop()
+        return True
 
+    def cleanup(self):
+        if not self.prepare_shutdown():
+            return False
+        if not self.controller.cleanup():
+            return False
+        try:
+            if self.flame_kit:
+                self.flame_kit.release()
+            if getattr(self, 'flame_analyzer_window', None):
+                self.flame_analyzer_window.close()
+            return True
+        except Exception as error:
+            self.log_message.emit(f"释放相机资源失败: {error}")
+            return False

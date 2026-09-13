@@ -74,6 +74,7 @@ class IgnitionExperimentPage(QWidget):
         self.ignition_temperatures = [None] * self.num_channels
         self.last_temperatures = [None] * self.num_channels
         self.last_check_time = time.time()
+        self._last_plot_sample_id = None
         
         # 切线法检测器
         tangent_config = self.config['ignition_detection'].get('tangent_method', {})
@@ -220,7 +221,7 @@ class IgnitionExperimentPage(QWidget):
         self.plot_curves = []
         for i in range(self.num_channels):
             curve = self.plot_widget.plot(
-                pen=pg.mkPen(color=colors[i], width=2),
+                pen=pg.mkPen(color=colors[i % len(colors)], width=2),
                 name=f'样品{i+1}'
             )
             self.plot_curves.append(curve)
@@ -356,7 +357,7 @@ class IgnitionExperimentPage(QWidget):
         state = self.controller.current_state
         
         # 只有STOPPED或RUNNING状态可以完成
-        if state not in {IgnitionExperimentState.STOPPED, IgnitionExperimentState.RUNNING}:
+        if not state.can_finalize():
             QMessageBox.warning(self, "提示", "当前状态不允许完成实验")
             return
         
@@ -490,33 +491,33 @@ class IgnitionExperimentPage(QWidget):
             return
         
         # 2. 确认对话框
+        failed = self.controller.current_state == IgnitionExperimentState.ERROR
+        action = "结束异常实验" if failed else "完成实验"
+        outcome = "已有数据将保留，实验记录标记为异常。" if failed else "完成后可以创建新的实验会话。"
         exp_id = self.current_experiment_config.get('experiment_id', '未知') if self.current_experiment_config else '未知'
         reply = QMessageBox.question(
             self,
-            '完成实验',
-            f'确定要完成当前实验吗？\n\n'
+            action,
+            f'确定要{action}吗？\n\n'
             f'实验编号: {exp_id}\n'
             f'实验名称: {self.current_experiment_config.get("experiment_name", "未知") if self.current_experiment_config else "未知"}\n\n'
-            f'完成后将重置实验状态，可以创建新的实验会话。',
+            f'{outcome}',
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
         
         if reply == QMessageBox.Yes:
-            # 3. 更新状态为COMPLETED（保存到数据库）
-            self.controller._set_state(IgnitionExperimentState.COMPLETED)
-            db_status = self.controller.current_state.to_db_status()
-            if db_status and self.current_session_id:
-                self.controller.db.end_experiment_session(self.current_session_id, status=db_status)
+            if not self.controller.finalize_experiment():
+                QMessageBox.critical(self, "保存失败", "实验未能完成，当前会话已保留，请重试。")
+                return
             
             # 4. 记录日志
             self._thread_safe_log("=" * 50)
-            self._thread_safe_log("✓ 实验已完成")
+            self._thread_safe_log("实验已结束，异常状态及已有数据已保留" if failed else "✓ 实验已完成")
             self._thread_safe_log(f"  实验编号: {exp_id}")
             self._thread_safe_log("=" * 50)
             
             # 5. 清理会话状态（控制器和页面同步）
-            self.controller.reset_session()  # 调用控制器的重置方法
             self.current_session_id = None
             self.current_experiment_config = None
             self.is_running = False
@@ -623,99 +624,46 @@ class IgnitionExperimentPage(QWidget):
             return False
     
     def _update_display(self):
-        """更新显示"""
+        """Update only valid new samples; acquisition errors stop analysis too."""
         if not self.manager:
             return
-        
-        # 更新温控仪表数据（连接设备后即可显示）
-        self._update_controller_data()
-        
-        # 更新温度数据（连接设备后即可显示，但只有实验运行中才记录到图表）
-        self._update_temperature_data()
-        
-        # 检测着火点（只在实验运行中检测）
-        if self.is_running:
-            self._check_ignition()
-            
-            # 采集数据到数据库（只在实验运行中采集）
+        if self.controller.is_running:
             self._on_collect()
-            
-            # 更新图表（只在实验运行中更新）
+        self._update_controller_data()
+        new_sample = self._update_temperature_data()
+        if self.controller.is_running and new_sample:
+            self._check_ignition()
             self._update_chart()
-    
+
     def _update_controller_data(self):
-        """更新温控仪表数据（使用UI组件）"""
-        data = self.manager.get_latest_data('着火点-温控仪表')
-        if data:
-            pv = data.get('pv')
-            sv = data.get('sv')
-            mv = data.get('mv')
-            
-            # 使用UI组件更新数据
-            self.controller_panel.update_controller_data(pv, sv, mv)
-    
+        data = self.manager.get_latest_data('着火点-温控仪表') or {}
+        values = [data.get(key) for key in ('pv', 'sv', 'mv')]
+        self.controller_panel.update_controller_data(*[
+            value if self.controller._valid_temperature(value) else None for value in values
+        ])
+
     def _update_temperature_data(self):
-        """更新温度数据"""
-        data = self.manager.get_latest_data('着火点-温度模块')
-        if not data:
-            return
-        
-        channels = data.get('channels', [])
-        if len(channels) < 6:
-            return
-        
-        sample_channels = self.config['ignition_detection']['sample_channels']
-        
-        # 更新显示（无论实验是否启动）使用UI组件
-        for i, ch_num in enumerate(sample_channels):
-            if ch_num < len(channels):
-                temp = channels[ch_num].get('temperature')
-                if temp is not None:
-                    self.last_temperatures[i] = temp
-                    # 使用UI组件更新显示
-                    self.temperature_panel.update_temperature(i, temp)
-                else:
-                    # 如果没有数据，显示上一个值
-                    self.temperature_panel.update_temperature(i, self.last_temperatures[i])
-            else:
-                # 通道不存在，显示上一个值
-                self.temperature_panel.update_temperature(i, self.last_temperatures[i])
-        
-        # 只有在实验运行中时才记录历史数据到图表
-        if self.is_running and self.start_time is not None:
-            # 计算当前时间（相对于实验开始时间）
-            current_time = time.time() - self.start_time
-            
-            # 检查是否有有效数据需要更新
-            has_valid_data = False
-            temps_to_add = []
-            
-            for i, ch_num in enumerate(sample_channels):
-                if ch_num < len(channels):
-                    temp = channels[ch_num].get('temperature')
-                    if temp is not None:
-                        has_valid_data = True
-                        temps_to_add.append(temp)
-                    else:
-                        # 如果没有数据，使用上一个值或0
-                        if self.last_temperatures[i] is not None:
-                            temps_to_add.append(self.last_temperatures[i])
-                        else:
-                            temps_to_add.append(0.0)
-                else:
-                    # 通道不存在，使用上一个值或0
-                    if self.last_temperatures[i] is not None:
-                        temps_to_add.append(self.last_temperatures[i])
-                    else:
-                        temps_to_add.append(0.0)
-            
-            # 只有在有有效数据时才添加时间点和温度数据
-            if has_valid_data:
-                self.time_history.append(current_time)
-                # 为所有通道添加温度数据，确保长度一致
-                for i, temp in enumerate(temps_to_add):
-                    self.temp_history[i].append(temp)
-    
+        data = self.manager.get_latest_data('着火点-温度模块') or {}
+        channels = data.get('channels') or []
+        temperatures = []
+        for i, channel_number in enumerate(self.config['ignition_detection']['sample_channels']):
+            channel = channels[channel_number] if 0 <= channel_number < len(channels) else None
+            value = channel.get('temperature') if isinstance(channel, dict) else None
+            value = value if self.controller._valid_temperature(value) else None
+            self.last_temperatures[i] = value
+            self.temperature_panel.update_temperature(i, value)
+            temperatures.append(value)
+        sample_id = data.get('sample_id')
+        if (not self.controller.is_running or self.start_time is None
+                or not temperatures or any(value is None for value in temperatures)
+                or sample_id is None or sample_id == getattr(self, '_last_plot_sample_id', None)):
+            return False
+        self._last_plot_sample_id = sample_id
+        self.time_history.append(time.time() - self.start_time)
+        for index, value in enumerate(temperatures):
+            self.temp_history[index].append(value)
+        return True
+
     def _check_ignition(self):
         """检测着火点（使用检测服务）"""
         if not self.ignition_detector:
@@ -852,28 +800,16 @@ class IgnitionExperimentPage(QWidget):
             callback(reply == QMessageBox.Yes)
     
     
+    def prepare_shutdown(self):
+        if not self.controller.prepare_shutdown():
+            return False
+        self.is_running = False
+        self.current_session_id = self.controller.current_session_id
+        self.current_experiment_config = self.controller.current_experiment_config
+        self.update_timer.stop()
+        return True
+
     def cleanup(self):
-        """
-        清理页面资源：停止定时器、关闭数据库、清理控制器
-        """
-        try:
-            # 停止更新定时器
-            if hasattr(self, 'update_timer') and self.update_timer:
-                self.update_timer.stop()
-            
-            # 停止实验
-            if self.is_running:
-                self._on_stop()
-            
-            # 数据库由Controller管理，无需在此关闭
-            
-            # 清理控制器资源
-            if hasattr(self, 'controller') and self.controller:
-                try:
-                    if hasattr(self.controller, 'cleanup'):
-                        self.controller.cleanup()
-                except Exception as e:
-                    print(f"清理控制器资源失败: {e}")
-            
-        except Exception as e:
-            print(f"清理页面资源时出错: {e}")
+        if not self.prepare_shutdown():
+            return False
+        return self.controller.cleanup()
