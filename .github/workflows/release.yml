@@ -49,7 +49,8 @@ jobs:
     name: Validate and build the tagged source
     needs: resolve
     uses: ./.github/workflows/windows-validation.yml
-    secrets: inherit
+    secrets:
+      FLAMEKIT_DEPLOY_KEY: ${{ secrets.FLAMEKIT_DEPLOY_KEY }}
     with:
       ref: ${{ needs.resolve.outputs.commit }}
 

@@ -16,7 +16,9 @@
 
 本机为 macOS，已通过源码无设备检查（真实窗口、两类数据库、历史 CSV/Excel/Word 导出、副屏和关闭重开）。本机完整 PyInstaller 构建曾因磁盘空间不足失败，构建脚本返回非零且未生成成功发布；已清理本次失败的临时构建目录。Windows 冻结包验证以 PR 的 Actions 结果为准。
 
-FlameKit 仓库为私有。CI 需要项目专用、只读 Deploy Key，对应 CPIE2 Actions Secret `FLAMEKIT_DEPLOY_KEY`；缺少授权时明确失败，不跳过依赖或验证。此权限配置不改变任何仓库的可见性。
+FlameKit 仓库为私有。2026-09-13 经用户授权，已创建专用只读 Deploy Key（ID `163152948`），私钥保存为 CPIE2 Actions Secret `FLAMEKIT_DEPLOY_KEY`。已用该密钥读取固定提交 `114f457c46689180a33fa1122809e926ec46de12`，并确认不能读取 CPIE2 私有仓库；GitHub 返回 `read_only=true`，本机临时私钥已清理。发布流程仅向验证任务传递这一项 Secret。缺少授权时明确失败，不跳过依赖或验证。
+
+Windows 首次 [Actions 运行](https://github.com/kevinalliswell/CPIE2/actions/runs/34751490128) 在执行任何步骤前被账号 Actions 预算限制阻止。密钥配置只解决依赖访问权限；预算限制仍以之后的运行结果为准，尚不能据此声明 Windows 验证通过。
 
 代码与模拟测试不能证明现场继电器、加热器、压力模块和相机已通过验收。具体执行步骤和证据位置见 [Windows 实机验收记录](HARDWARE_ACCEPTANCE.md)。本轮不创建发布 tag，不把未验收的候选版本声明为正式结项。
 

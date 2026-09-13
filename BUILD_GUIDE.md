@@ -29,7 +29,9 @@ flamekit @ git+https://github.com/kevinalliswell/flame-package.git@114f457c46689
 
 本地 pip 调用 Git 拉取此源码，需要当前 Git 身份具备该私有仓库读取权限。不要在依赖文件中写入令牌或私钥，也不要改回本地 `flame_package/`。上游 `v1.1.3` 引用所指源码的安装元数据仍为 `1.1.2`，因此必须用完整提交 SHA 核对来源，不能只比较包版本字符串。
 
-CI 使用项目专用的只读 Deploy Key：公钥授权到 `kevinalliswell/flame-package`，私钥存为 CPIE2 Actions Secret `FLAMEKIT_DEPLOY_KEY`。**该授权目前仍待用户完成。** 工作流先验证权限，再按固定 SHA 检出私有依赖；临时映射只作用于安装子进程，不修改全局 Git 配置。缺少授权会明确失败，不跳过依赖或测试。
+CI 使用项目专用的只读 Deploy Key：公钥授权到 `kevinalliswell/flame-package`，私钥存为 CPIE2 Actions Secret `FLAMEKIT_DEPLOY_KEY`。**本仓库已完成配置并验证固定提交可读取。** 工作流先验证权限，再按固定 SHA 检出私有依赖；临时映射只作用于安装子进程，不修改全局 Git 配置。发布流程仅向验证工作流显式传递这一项 Secret。缺少授权会明确失败，不跳过依赖或测试。
+
+更换或撤销权限时，维护者须同时核对 FlameKit 的 Deploy Key 与 CPIE2 的同名 Secret；公钥始终保持 `read_only=true`。新建密钥后先验证固定源码提交可读，再更新 Secret 并撤销旧公钥。私钥不写入仓库或操作日志。
 
 ## 2. 执行源码验证
 
