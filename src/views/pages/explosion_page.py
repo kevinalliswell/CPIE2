@@ -171,14 +171,8 @@ class ExplosionExperimentPage(QWidget):
         )
 
     def _on_controller_state_changed(self, _state: str):
-        """控制器状态变化时统一刷新按钮与状态标签"""
+        """控制器状态变化时统一刷新按钮（状态文本由控制器的 status_updated 信号负责）"""
         self._update_button_states()
-        state = self.controller.current_state
-        if state == ExplosionExperimentState.SESSION_CREATED and self.current_session_id:
-            self.lbl_status.setText(f"{state.display_text()} (ID:{self.current_session_id})")
-            self.lbl_status.setStyleSheet(
-                f"font-weight: bold; font-size: 12pt; color: {state.color()};"
-            )
 
     def _init_ui(self):
         """初始化界面（使用组件）"""

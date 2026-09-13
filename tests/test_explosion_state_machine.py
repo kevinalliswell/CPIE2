@@ -171,15 +171,49 @@ def test_relay_failure_shuts_down_relays_and_recovers(make_controller):
     assert not controller.is_running
 
 
-def test_verify_relays_off_requires_readback(make_controller):
+def test_verify_relays_off_requires_fresh_readback(make_controller):
     controller = make_controller()
+    controller.config["devices"] = [{"name": "爆炸性-继电器", "type": "relay_controller", "poll_interval": 0.05}]
+    controller.sequence_running = True  # 校验步骤只在时序运行中执行，等待逻辑依赖该标志
+    step = {"retry_count": 2, "retry_delay": 0.02}
+
+    # 没有任何回读
+    assert controller._verify_relays_off(step) is False
+
+    # 回读是本步骤开始之前采集的（旧数据），即使全部为关也不能确认
+    controller.manager.latest["爆炸性-继电器"] = {
+        "relays": {"relay_1": False, "relay_2": False}, "timestamp": time.time() - 10.0,
+    }
+    assert controller._verify_relays_off(step) is False
+
+    # 新鲜回读但仍有继电器导通
+    controller.manager.latest["爆炸性-继电器"] = {
+        "relays": {"relay_1": False, "relay_2": True}, "timestamp": time.time() + 5.0,
+    }
+    assert controller._verify_relays_off(step) is False
+
+    # 新鲜回读且全部关闭
+    controller.manager.latest["爆炸性-继电器"] = {
+        "relays": {"relay_1": False, "relay_2": False}, "timestamp": time.time() + 5.0,
+    }
+    assert controller._verify_relays_off(step) is True
+
+
+def test_verify_relays_off_waits_for_next_poll(make_controller):
+    """retry_count*retry_delay 小于轮询周期时，验证窗口仍要覆盖下一次回读"""
+    controller = make_controller()
+    controller.config["devices"] = [{"name": "爆炸性-继电器", "type": "relay_controller", "poll_interval": 0.2}]
+    controller.sequence_running = True
     step = {"retry_count": 1, "retry_delay": 0.01}
-    assert controller._verify_relays_off(step) is False
 
-    controller.manager.latest["爆炸性-继电器"] = {"relays": {"relay_1": False, "relay_2": True}}
-    assert controller._verify_relays_off(step) is False
+    def poller():
+        time.sleep(0.25)
+        controller.manager.latest["爆炸性-继电器"] = {
+            "relays": {"relay_1": False}, "timestamp": time.time(),
+        }
 
-    controller.manager.latest["爆炸性-继电器"] = {"relays": {"relay_1": False, "relay_2": False}}
+    import threading
+    threading.Thread(target=poller, daemon=True).start()
     assert controller._verify_relays_off(step) is True
 
 

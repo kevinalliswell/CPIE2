@@ -7,6 +7,7 @@
 
 import logging
 import threading
+import time
 from datetime import datetime
 from PySide6.QtCore import QObject, Signal, QTimer
 from flamekit import FlameKit
@@ -570,35 +571,65 @@ class ExplosionController(QObject):
             self.logger.error(f"控制温控器失败: {e}")
             return False
     
+    def _relay_poll_interval(self) -> float:
+        """继电器设备的轮询周期（秒），来自 devices 配置，默认 1.0"""
+        for device in self.config.get('devices', []) or []:
+            if isinstance(device, dict) and device.get('type') == 'relay_controller':
+                try:
+                    return max(0.1, float(device.get('poll_interval', 1.0)))
+                except (TypeError, ValueError):
+                    break
+        return 1.0
+
     def _verify_relays_off(self, step_config):
-        """验证继电器全部关闭"""
-        retry_count = step_config.get('retry_count', 3)
-        # 配置文件中的键为 retry_delay（兼容旧键 retry_interval）
-        retry_interval = step_config.get('retry_delay', step_config.get('retry_interval', 1.0))
+        """
+        验证继电器全部关闭
 
-        for attempt in range(retry_count):
-            # 检查所有继电器状态：没有继电器回读数据时不能视为"已关闭"
+        继电器状态由轮询线程周期性回读（默认 1 s 一次），而关闭命令只是刚刚入队，
+        因此：
+        - 只接受本步骤开始之后采集到的回读（按数据的 timestamp 判断），旧回读一律视为"未确认"；
+        - 验证窗口至少覆盖两个轮询周期，避免 retry_delay 较小时因回读尚未刷新而误判失败。
+        """
+        try:
+            retry_count = max(1, int(step_config.get('retry_count', 3)))
+        except (TypeError, ValueError):
+            retry_count = 3
+        try:
+            # 配置文件中的键为 retry_delay（兼容旧键 retry_interval）
+            retry_interval = float(step_config.get('retry_delay', step_config.get('retry_interval', 1.0)))
+        except (TypeError, ValueError):
+            retry_interval = 1.0
+        retry_interval = max(0.05, retry_interval)
+
+        started_at = time.time()
+        deadline = started_at + max(retry_count * retry_interval, 2 * self._relay_poll_interval() + 0.5)
+
+        while True:
             data = self.get_latest_relay_data()
-            if data and data.get('relays'):
-                all_off = True
-                for relay_num, state in data['relays'].items():
-                    if state:
-                        all_off = False
-                        self.log_message.emit(f"  ⚠ 继电器{relay_num}仍处于导通状态")
+            relays = data.get('relays') if data else None
+            try:
+                data_time = float(data.get('timestamp', 0) or 0) if data else 0.0
+            except (TypeError, ValueError):
+                data_time = 0.0
+            is_fresh = bool(relays) and data_time > started_at
+
+            if is_fresh:
+                still_on = [num for num, state in relays.items() if state]
+                if not still_on:
+                    self.log_message.emit("  ✓ 所有继电器已关闭")
+                    return True
+                for relay_num in still_on:
+                    self.log_message.emit(f"  ⚠ 继电器{relay_num}仍处于导通状态")
             else:
-                all_off = False
-                self.log_message.emit("  ⚠ 未获取到继电器状态回读，无法确认已关闭")
+                self.log_message.emit("  ⚠ 等待继电器状态回读刷新...")
 
-            if all_off:
-                self.log_message.emit("  ✓ 所有继电器已关闭")
-                return True
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            if not self._interruptible_wait(min(retry_interval, remaining)):
+                return False
 
-            if attempt < retry_count - 1:
-                self.log_message.emit(f"  等待{retry_interval}秒后重试...")
-                if not self._interruptible_wait(retry_interval):
-                    return False
-
-        self.log_message.emit("  ✗ 验证失败：部分继电器未关闭")
+        self.log_message.emit("  ✗ 验证失败：未能确认全部继电器已关闭")
         return False
     
     def get_latest_controller_data(self):
