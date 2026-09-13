@@ -23,29 +23,35 @@ class IgnitionDetectionService:
         self.tangent_detector = tangent_detector
         self.last_check_time = time.time()
     
-    def check_ignition(self, temp_history: dict, ignition_flags: list, check_interval: float, start_temperature: float = 150.0):
+    def check_ignition(self, temp_history: dict, ignition_flags: list, check_interval: float,
+                       start_temperature: float = 150.0, sample_interval: float = None):
         """
         检测着火点
-        
+
         Args:
             temp_history: 温度历史数据字典 {channel_index: deque}
             ignition_flags: 着火点检测标志列表
-            check_interval: 检测间隔（秒）
+            check_interval: 检测间隔（秒），用于限制本方法的调用频率
             start_temperature: 起始温度阈值（只有温度大于此值才开始检测）
-        
+            sample_interval: temp_history 的采样周期（秒）。温升窗口和温升速率
+                必须按真实采样周期换算；未提供时退回 check_interval（旧行为）。
+
         Returns:
             list: 检测结果列表 [(channel, temperature, method), ...]
         """
         if not self.config['ignition_detection']['enabled']:
             return []
-        
+
         current_time = time.time()
-        
+
         # 检测间隔控制
         if current_time - self.last_check_time < check_interval:
             return []
-        
+
         self.last_check_time = current_time
+
+        if not sample_interval or sample_interval <= 0:
+            sample_interval = check_interval
         
         criteria = self.config['ignition_detection']['criteria']
         results = []
@@ -78,8 +84,8 @@ class IgnitionDetectionService:
                     threshold = criteria['temperature_rise']['threshold']
                     time_window = criteria['temperature_rise']['time_window']
                     
-                    # 计算时间窗口内的温升
-                    window_size = int(time_window / check_interval)
+                    # 计算时间窗口内的温升（按真实采样周期换算窗口长度）
+                    window_size = max(2, int(round(time_window / sample_interval)))
                     if len(temp_history[i]) >= window_size:
                         temp_rise = current_temp - temp_history[i][-window_size]
                         if temp_rise >= threshold:
@@ -91,8 +97,8 @@ class IgnitionDetectionService:
                 if len(temp_history[i]) >= 6:
                     threshold = criteria['rise_rate']['threshold']
                     
-                    # 计算温升速率 (最近6个点)
-                    time_diff = check_interval * 5
+                    # 计算温升速率 (最近6个点，跨越5个采样周期)
+                    time_diff = sample_interval * 5
                     temp_diff = current_temp - temp_history[i][-6]
                     rise_rate = temp_diff / time_diff
                     

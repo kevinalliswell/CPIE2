@@ -67,6 +67,13 @@ class MainWindow(QMainWindow):
         # 加载配置
         self.config_path = PathManager.get_config_path('experiment_config.yaml')
         self.config = Tools.load_config(config_path=self.config_path)
+        if not isinstance(self.config, dict) or 'ui' not in self.config:
+            # Tools.load_config 在文件缺失/格式错误时返回 None，这里明确报错而不是抛出 NoneType 异常
+            from PySide6.QtWidgets import QMessageBox
+            message = f"无法加载实验配置文件：\n{self.config_path}\n\n请检查文件是否存在且为合法的 YAML（详见日志）。"
+            self.logger.critical(message)
+            QMessageBox.critical(None, "配置加载失败", message)
+            raise RuntimeError(message)
         self.ui_config = self.config['ui']
 
         # 检查数据和配置文件是否存在
@@ -108,6 +115,7 @@ class MainWindow(QMainWindow):
             self.secondary_display_window = SecondaryDisplayWindow(
                 explosion_controller=explosion_controller,
                 ignition_controller=ignition_controller,
+                ui_config=self.ui_config,
                 parent=None  # 独立窗口
             )
             

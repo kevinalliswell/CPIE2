@@ -729,11 +729,19 @@ class IgnitionExperimentPage(QWidget):
         if self.data_collector:
             start_temp = self.data_collector.get_collect_start_temperature()
         
+        # temp_history 每个 update_timer 周期追加一个采样点，
+        # 温升窗口/速率必须按该周期换算，而不是按 check_interval
+        try:
+            sample_interval = float(self.ui_config.get('update_interval', 500)) / 1000.0
+        except (TypeError, ValueError):
+            sample_interval = None
+
         results = self.ignition_detector.check_ignition(
             self.temp_history,
             self.ignition_detected_flags,
             check_interval,
-            start_temp
+            start_temp,
+            sample_interval=sample_interval
         )
         
         # 处理检测结果

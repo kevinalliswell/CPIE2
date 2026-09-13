@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 # 添加src目录到路径
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from models.explosion_database import ExplosionDatabase
 from models.ignition_database import IgnitionDatabase

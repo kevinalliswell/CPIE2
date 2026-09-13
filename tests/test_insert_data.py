@@ -10,7 +10,7 @@ import json
 from datetime import datetime
 
 # 添加src目录到路径
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from models.ignition_database import IgnitionDatabase
 from models.explosion_database import ExplosionDatabase

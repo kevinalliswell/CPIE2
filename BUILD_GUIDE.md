@@ -18,7 +18,7 @@
 
 ### 系统要求
 - **操作系统**: Windows 10/11, macOS 10.15+, Linux (Ubuntu 20.04+)
-- **Python 版本**: 3.9+ (推荐 3.11)
+- **Python 版本**: 3.10+ (推荐 3.11；pymodbus 3.10+ 不支持 Python 3.9)
 - **磁盘空间**: 至少 2GB 可用空间
 - **内存**: 建议 8GB 以上
 
@@ -254,7 +254,7 @@ ls dist/CPIE/resources/styles/
 ```bash
 # 重新安装 opencv-python
 pip uninstall opencv-python
-pip install opencv-python>=4.12.0
+pip install "opencv-python>=4.12.0"
 
 # 如果仍有问题,尝试无头版本
 pip install opencv-python-headless

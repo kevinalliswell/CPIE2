@@ -13,7 +13,9 @@ from typing import List, Tuple, Optional
 from .config import get_config
 
 mvsdk = None
-_CAMERA_EXCEPTION = None
+# 在 SDK 成功加载前保持为 Exception：若 _load_mvsdk() 抛出（如未安装相机 SDK），
+# `except _CAMERA_EXCEPTION` 仍然是合法的异常类，而不是 `except None` 导致 TypeError
+_CAMERA_EXCEPTION = Exception
 
 
 def _load_mvsdk():
@@ -134,10 +136,28 @@ class CameraCapture:
 			return True
 		except _CAMERA_EXCEPTION as e:  # type: ignore
 			print(f"相机初始化失败({getattr(e, 'error_code', 'unknown')}): {getattr(e, 'message', e)}")
+			self._abort_initialization()
 			return False
 		except Exception as e:
 			print(f"相机初始化异常: {e}")
+			self._abort_initialization()
 			return False
+
+	def _abort_initialization(self) -> None:
+		"""初始化中途失败时释放已打开的相机句柄和缓冲区，否则设备会一直被本进程占用"""
+		try:
+			if mvsdk is not None and self.hCamera:
+				if self.frame_buffer:
+					mvsdk.CameraAlignFree(self.frame_buffer)
+				mvsdk.CameraUnInit(self.hCamera)
+		except Exception as e:
+			print(f"释放未完成初始化的相机失败: {e}")
+		finally:
+			self.hCamera = None
+			self.frame_buffer = None
+			self.cap = None
+			self.is_color = False
+			self.is_initialized = False
 
 	def capture_sequence(self, save_dir: str, duration: float = 1.0) -> Tuple[List[str], int]:
 		if not self.is_initialized:
@@ -157,8 +177,11 @@ class CameraCapture:
 		while time.time() - start_time < duration:
 			try:
 				pRawData, FrameHead = mvsdk_module.CameraGetImageBuffer(self.hCamera, 200)
-				mvsdk_module.CameraImageProcess(self.hCamera, pRawData, self.frame_buffer, FrameHead)
-				mvsdk_module.CameraReleaseImageBuffer(self.hCamera, pRawData)
+				try:
+					mvsdk_module.CameraImageProcess(self.hCamera, pRawData, self.frame_buffer, FrameHead)
+				finally:
+					# 无论处理是否成功都必须归还 SDK 帧缓冲，否则缓冲池耗尽后后续取帧会一直超时
+					mvsdk_module.CameraReleaseImageBuffer(self.hCamera, pRawData)
 
 				if platform.system() == "Windows":
 					mvsdk_module.CameraFlipFrameBuffer(self.frame_buffer, FrameHead, 1)
@@ -205,8 +228,10 @@ class CameraCapture:
 		mvsdk_module = _load_mvsdk()
 		try:
 			pRawData, FrameHead = mvsdk_module.CameraGetImageBuffer(self.hCamera, 1000)
-			mvsdk_module.CameraImageProcess(self.hCamera, pRawData, self.frame_buffer, FrameHead)
-			mvsdk_module.CameraReleaseImageBuffer(self.hCamera, pRawData)
+			try:
+				mvsdk_module.CameraImageProcess(self.hCamera, pRawData, self.frame_buffer, FrameHead)
+			finally:
+				mvsdk_module.CameraReleaseImageBuffer(self.hCamera, pRawData)
 
 			if platform.system() == "Windows":
 				mvsdk_module.CameraFlipFrameBuffer(self.frame_buffer, FrameHead, 1)

@@ -5,6 +5,7 @@
 用于选择预设模式或自定义温控曲线
 """
 
+import copy
 import json
 from pathlib import Path
 from PySide6.QtWidgets import (
@@ -174,7 +175,8 @@ class ModeSwitchDialog(QDialog):
         """预设模式被选中"""
         if checked:
             self.current_mode_name = preset['name']
-            self.current_segments = preset['segments'].copy()
+            # 深拷贝：表格编辑会原地修改内层 [温度, 时间] 列表，浅拷贝会污染预设本身
+            self.current_segments = copy.deepcopy(preset['segments'])
             self._update_table()
     
     def _on_custom_selected(self, checked):
@@ -213,22 +215,30 @@ class ModeSwitchDialog(QDialog):
         if item.column() == 0:  # 程序段号不可编辑
             return
         
+        row = item.row()
+        col = item.column()
         try:
-            row = item.row()
-            col = item.column()
             value = float(item.text())
-            
+
             if col == 1:  # 温度
                 self.current_segments[row][0] = value
             elif col == 2:  # 时间
                 self.current_segments[row][1] = int(value)
-            
+
             # 如果修改了表格，自动切换到自定义模式
             if self.preset_radios:
                 self.preset_radios[-1].setChecked(True)
-                
+
         except (ValueError, IndexError):
-            pass
+            # 非法输入：把单元格恢复为当前有效值，避免表格显示与实际数据不一致
+            try:
+                old_value = self.current_segments[row][0 if col == 1 else 1]
+                self.segments_table.blockSignals(True)
+                item.setText(str(old_value))
+            except IndexError:
+                pass
+            finally:
+                self.segments_table.blockSignals(False)
     
     def _add_segment(self):
         """添加新程序段"""

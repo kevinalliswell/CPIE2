@@ -317,7 +317,12 @@ class HistoryQueryPage(QWidget):
             self.table.insertRow(row)
             
             # 列0: 实验类型
-            self.table.setItem(row, 0, QTableWidgetItem(exp['experiment_type']))
+            # 将记录本身挂在第0列的 UserRole 上：表格启用了排序，视图行号与
+            # self.experiments_data 的下标在用户点击表头后不再一一对应，
+            # 后续选中/删除/导出必须通过该数据而不是行号来定位记录
+            type_item = QTableWidgetItem(exp['experiment_type'])
+            type_item.setData(Qt.UserRole, exp)
+            self.table.setItem(row, 0, type_item)
             
             # 列1: 实验会话ID（数据库自增主键id）
             session_id = str(exp.get('id', ''))
@@ -408,17 +413,23 @@ class HistoryQueryPage(QWidget):
         # 调整列宽
         self.table.resizeColumnsToContents()
 
+    def _experiment_at_row(self, row):
+        """按视图行号取回对应的实验记录（排序后行号与列表下标不再对应）"""
+        item = self.table.item(row, 0)
+        if item is None:
+            return None
+        return item.data(Qt.UserRole)
+
     def filter_experiments(self):
         """过滤实验记录（支持关键字、类型和时间过滤）"""
         search_text = self.search_edit.text().lower()
-        
+
         for row in range(self.table.rowCount()):
             # 获取实验数据
-            if row >= len(self.experiments_data):
+            exp = self._experiment_at_row(row)
+            if exp is None:
                 self.table.hideRow(row)
                 continue
-                
-            exp = self.experiments_data[row]
             
             # 类型过滤
             if self.selected_experiment_type is not None:
@@ -575,8 +586,9 @@ class HistoryQueryPage(QWidget):
         selected = self.table.selectedItems()
         if selected:
             row = selected[0].row()
-            if 0 <= row < len(self.experiments_data):
-                self.current_experiment = self.experiments_data[row]
+            experiment = self._experiment_at_row(row)
+            if experiment is not None:
+                self.current_experiment = experiment
                 self.logger.debug(f"选中实验: {self.current_experiment.get('experiment_name', 'Unknown')}")
                 # 加载实验详情到右侧卡片
                 self.load_experiment_detail()
@@ -616,7 +628,8 @@ class HistoryQueryPage(QWidget):
                 ]
                 
                 if result:
-                    exp_data['max_flame_length'] = result.get('avg_flame_length')
+                    # experiment_results 中保存的是会话平均火焰长度，不是最大值
+                    exp_data['avg_flame_length'] = result.get('avg_flame_length')
                     exp_data['explosion_level'] = result.get('explosion_level')
                 
                 # 字段映射
@@ -825,10 +838,12 @@ class HistoryQueryPage(QWidget):
         
         try:
             # 创建并显示切线法分析对话框
+            # 切线法参数位于 experiment_config.yaml 的 ignition_experiment 段下
+            ignition_config = (self.config or {}).get('ignition_experiment', self.config or {})
             dialog = TangentAnalysisDialog(
                 session_id=exp_id,
                 db=self.ignition_db,
-                config=self.config,
+                config=ignition_config,
                 parent=self
             )
             dialog.exec()
@@ -860,8 +875,8 @@ class HistoryQueryPage(QWidget):
 
         # 确认删除
         row = items[0].row()
-        if 0 <= row < len(self.experiments_data):
-            experiment = self.experiments_data[row]
+        experiment = self._experiment_at_row(row)
+        if experiment is not None:
             exp_name = experiment.get('experiment_name', '')
             exp_type = experiment.get('experiment_type', '')
             session_id = experiment.get('id')
@@ -932,8 +947,9 @@ class HistoryQueryPage(QWidget):
                     if not success:
                         raise Exception("删除实验记录失败")
 
-                    # 从数据列表中删除
-                    self.experiments_data.pop(row)
+                    # 从数据列表中删除（按记录对象而非行号，避免排序后删错）
+                    if experiment in self.experiments_data:
+                        self.experiments_data.remove(experiment)
 
                     # 更新表格显示
                     self.table.removeRow(row)
@@ -1043,8 +1059,8 @@ class HistoryQueryPage(QWidget):
             experiment_ids = []
             exp_types = set()
             for row in selected_rows:
-                if 0 <= row < len(self.experiments_data):
-                    exp = self.experiments_data[row]
+                exp = self._experiment_at_row(row)
+                if exp is not None:
                     experiment_ids.append(exp.get('id'))
                     exp_types.add('explosion' if exp.get('experiment_type') == '爆炸性' else 'ignition')
             

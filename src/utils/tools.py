@@ -15,12 +15,18 @@ class Tools:
         info_path = PathManager.get_config_path("software.info")
         if not os.path.exists(info_path):
             logger.error(f"软件信息文件不存在: {info_path}")
+            # 兜底信息必须包含页面会直接索引的全部键（HomePage/AboutPage 使用 contact、website）
             return {
                 "version": "1.0.0",
                 "author": "北京科技大学",
                 "description": "CPIE-3000A 煤粉着火点及爆炸性检测系统",
                 "release_date": "2025-11-21",
                 "copyright": "© 2025 北京科技大学",
+                "contact": "",
+                "website": "",
+                "build_date": "",
+                "python_version": "",
+                "platforms": [],
             }
         with open(info_path, "r", encoding="utf-8") as f:
             logger.info(f"软件信息文件加载成功: {info_path}")

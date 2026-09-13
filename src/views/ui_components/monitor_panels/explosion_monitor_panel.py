@@ -79,7 +79,7 @@ class ExplosionMonitorPanel(BaseMonitorPanel):
         
         return widget
     
-    def connect_controller_signals(self, controller):
+    def connect_controller_signals(self, controller, update_interval=None):
         """连接控制器（使用定时器轮询，和主屏一样的方式）"""
         if controller is None:
             return
@@ -90,12 +90,12 @@ class ExplosionMonitorPanel(BaseMonitorPanel):
             self.manager = controller.manager
         
         # 启动定时器轮询（和主屏一样的方式）
-        # 默认更新间隔500ms，可以从ui_config获取
-        update_interval = 500  # ms
-        if hasattr(controller, 'config') and controller.config:
-            ui_config = controller.config.get('ui_config', {})
-            update_interval = ui_config.get('update_interval', 500)
-        
+        # 更新间隔由副屏窗口从 ui 配置传入（控制器只持有实验段配置，其中没有 ui 信息）
+        try:
+            update_interval = int(update_interval) if update_interval else 500
+        except (TypeError, ValueError):
+            update_interval = 500
+
         self.update_timer.start(update_interval)
         print(f"[爆炸性监控面板] 定时器轮询已启动，间隔: {update_interval}ms")
     

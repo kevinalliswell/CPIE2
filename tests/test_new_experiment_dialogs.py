@@ -1,12 +1,32 @@
 """
-测试对话框脚本 - 打印填入的信息
+新建实验对话框测试
+
+- 前三个 test_* 函数是 pytest 用例：在离屏 QApplication 中构造对话框并校验 get_config_data() 的输出
+- main() 是手工交互脚本（需要显示器和键盘输入），只在直接运行本文件时执行
 """
 
-import sys
-from PySide6.QtWidgets import QApplication
-from src.views.dialogs.explosion_experiment_dialog import ExplosionExperimentDialog
-from src.views.dialogs.ignition_experiment_dialog import IgnitionExperimentDialog
 import json
+import os
+import sys
+from pathlib import Path
+
+import pytest
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+for _path in (PROJECT_ROOT, PROJECT_ROOT / "src"):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from src.views.dialogs.explosion_experiment_dialog import ExplosionExperimentDialog  # noqa: E402
+from src.views.dialogs.ignition_experiment_dialog import IgnitionExperimentDialog  # noqa: E402
+
+
+@pytest.fixture(scope="module")
+def qapp():
+    from PySide6.QtWidgets import QApplication
+
+    return QApplication.instance() or QApplication([])
 
 
 def print_config(title: str, config: dict):
@@ -22,174 +42,104 @@ def print_config(title: str, config: dict):
     print(f"{'='*60}\n")
 
 
-def test_explosion_dialog():
-    """测试爆炸性实验对话框"""
-    print("\n【测试爆炸性实验对话框】")
-    
-    # 创建对话框
+def test_explosion_dialog(qapp):
+    """爆炸性实验对话框：填入的信息应原样出现在配置数据中"""
     dialog = ExplosionExperimentDialog("EXP-20241201-001")
-    
-    # 填入测试数据
-    dialog.exp_name_input.setText("煤粉爆炸性测试")
-    dialog.sample_name_input.setText("煤粉样品A")
-    dialog.client_input.setText("北京科技大学")
-    dialog.operator_input.setText("张三")
-    dialog.note_input.setPlainText("这是测试备注信息")
-    
-    # 获取配置数据并打印
-    config = dialog.get_config_data()
-    print_config("爆炸性实验配置信息", config)
+    try:
+        dialog.exp_name_input.setText("煤粉爆炸性测试")
+        dialog.sample_name_input.setText("煤粉样品A")
+        dialog.client_input.setText("北京科技大学")
+        dialog.operator_input.setText("张三")
+        dialog.note_input.setPlainText("这是测试备注信息")
+
+        config = dialog.get_config_data()
+        print_config("爆炸性实验配置信息", config)
+
+        assert config["experiment_id"] == "EXP-20241201-001"
+        assert config["experiment_name"] == "煤粉爆炸性测试"
+        assert config["sample_name"] == "煤粉样品A"
+        assert config["client"] == "北京科技大学"
+        assert config["operator"] == "张三"
+        # description 是由实验编号/委托单位/操作员/备注拼接的摘要
+        assert "这是测试备注信息" in config["description"]
+    finally:
+        dialog.deleteLater()
 
 
-def test_ignition_dialog():
-    """测试着火点实验对话框"""
-    print("\n【测试着火点实验对话框】")
-    
-    # 创建对话框
+def test_ignition_dialog(qapp):
+    """着火点实验对话框：6 个样品名称应按顺序进入 sample_names 列表"""
     dialog = IgnitionExperimentDialog("IGN-20241201-001")
-    
-    # 填入测试数据
-    dialog.exp_name_input.setText("煤粉着火点测试")
-    dialog.sample_name_inputs[0].setText("样品1")
-    dialog.sample_name_inputs[1].setText("样品2")
-    dialog.sample_name_inputs[2].setText("样品3")
-    dialog.sample_name_inputs[3].setText("样品4")
-    dialog.sample_name_inputs[4].setText("样品5")
-    dialog.sample_name_inputs[5].setText("样品6")
-    dialog.client_input.setText("北京科技大学")
-    dialog.operator_input.setText("李四")
-    dialog.note_input.setPlainText("这是着火点测试备注")
-    
-    # 获取配置数据并打印
-    config = dialog.get_config_data()
-    print_config("着火点实验配置信息", config)
+    try:
+        dialog.exp_name_input.setText("煤粉着火点测试")
+        for i in range(6):
+            dialog.sample_name_inputs[i].setText(f"样品{i + 1}")
+        dialog.client_input.setText("北京科技大学")
+        dialog.operator_input.setText("李四")
+        dialog.note_input.setPlainText("这是着火点测试备注")
+
+        config = dialog.get_config_data()
+        print_config("着火点实验配置信息", config)
+
+        expected_names = [f"样品{i + 1}" for i in range(6)]
+        assert config["experiment_id"] == "IGN-20241201-001"
+        assert config["experiment_name"] == "煤粉着火点测试"
+        # sample_names 以 JSON 字符串形式存入数据库，sample_names_list 为原始列表
+        assert json.loads(config["sample_names"]) == expected_names
+        assert config["sample_names_list"] == expected_names
+        assert config["client"] == "北京科技大学"
+        assert config["operator"] == "李四"
+        assert "这是着火点测试备注" in config["description"]
+    finally:
+        dialog.deleteLater()
 
 
-def test_with_signal():
-    """使用信号方式测试（模拟实际使用场景）"""
-    print("\n【使用信号方式测试】")
-    
-    def on_explosion_confirmed(config):
-        print_config("爆炸性实验信号接收到的配置", config)
-    
-    def on_ignition_confirmed(config):
-        print_config("着火点实验信号接收到的配置", config)
-    
-    # 测试爆炸性实验对话框
+def test_with_signal(qapp):
+    """confirmed 信号应携带与 get_config_data() 一致的配置字典"""
+    received = []
+
     explosion_dialog = ExplosionExperimentDialog("EXP-20241201-002")
-    explosion_dialog.exp_name_input.setText("爆炸性测试-信号方式")
-    explosion_dialog.sample_name_input.setText("测试样品")
-    explosion_dialog.confirmed.connect(on_explosion_confirmed)
-    
-    # 测试着火点实验对话框
-    ignition_dialog = IgnitionExperimentDialog("IGN-20241201-002")
-    ignition_dialog.exp_name_input.setText("着火点测试-信号方式")
-    ignition_dialog.sample_name_inputs[0].setText("信号测试样品1")
-    ignition_dialog.sample_name_inputs[1].setText("信号测试样品2")
-    ignition_dialog.confirmed.connect(on_ignition_confirmed)
-    
-    print("注意：信号测试需要手动点击确认按钮才会触发打印")
+    try:
+        explosion_dialog.exp_name_input.setText("爆炸性测试-信号方式")
+        explosion_dialog.sample_name_input.setText("测试样品")
+        explosion_dialog.confirmed.connect(received.append)
+        explosion_dialog.confirmed.emit(explosion_dialog.get_config_data())
+
+        assert len(received) == 1
+        assert received[0]["experiment_name"] == "爆炸性测试-信号方式"
+        assert received[0]["sample_name"] == "测试样品"
+    finally:
+        explosion_dialog.deleteLater()
 
 
 def main():
-    """主函数"""
+    """手工交互脚本：显示对话框并打印确认后的配置"""
+    from PySide6.QtWidgets import QApplication
+
     app = QApplication(sys.argv)
-    
-    print("="*60)
+
+    print("=" * 60)
     print("对话框测试程序")
-    print("="*60)
+    print("=" * 60)
     print("\n请选择要测试的对话框：")
     print("1. 爆炸性实验对话框")
     print("2. 着火点实验对话框")
-    print("3. 两个都测试（先爆炸性，后着火点）")
-    print("4. 退出")
-    
-    choice = input("\n请输入选项 (1-4): ").strip()
-    
+    print("3. 退出")
+
+    choice = input("\n请输入选项 (1-3): ").strip()
+
     if choice == "1":
-        # 显示爆炸性实验对话框
-        explosion_dialog = ExplosionExperimentDialog("EXP-20241201-001")
-        explosion_dialog.exp_name_input.setText("煤粉爆炸性测试")
-        explosion_dialog.sample_name_input.setText("煤粉样品A")
-        explosion_dialog.client_input.setText("北京科技大学")
-        explosion_dialog.operator_input.setText("张三")
-        explosion_dialog.note_input.setPlainText("这是测试备注信息")
-        
-        def on_explosion_confirmed(config):
-            print_config("爆炸性实验配置信息", config)
-            app.quit()
-        
-        explosion_dialog.confirmed.connect(on_explosion_confirmed)
-        explosion_dialog.show()
+        dialog = ExplosionExperimentDialog("EXP-20241201-001")
+        dialog.confirmed.connect(lambda config: (print_config("爆炸性实验配置信息", config), app.quit()))
+        dialog.show()
         sys.exit(app.exec())
-    
     elif choice == "2":
-        # 显示着火点实验对话框
-        ignition_dialog = IgnitionExperimentDialog("IGN-20241201-001")
-        ignition_dialog.exp_name_input.setText("煤粉着火点测试")
-        ignition_dialog.sample_name_inputs[0].setText("样品1")
-        ignition_dialog.sample_name_inputs[1].setText("样品2")
-        ignition_dialog.sample_name_inputs[2].setText("样品3")
-        ignition_dialog.sample_name_inputs[3].setText("样品4")
-        ignition_dialog.sample_name_inputs[4].setText("样品5")
-        ignition_dialog.sample_name_inputs[5].setText("样品6")
-        ignition_dialog.client_input.setText("北京科技大学")
-        ignition_dialog.operator_input.setText("李四")
-        ignition_dialog.note_input.setPlainText("这是着火点测试备注")
-        
-        def on_ignition_confirmed(config):
-            print_config("着火点实验配置信息", config)
-            app.quit()
-        
-        ignition_dialog.confirmed.connect(on_ignition_confirmed)
-        ignition_dialog.show()
+        dialog = IgnitionExperimentDialog("IGN-20241201-001")
+        dialog.confirmed.connect(lambda config: (print_config("着火点实验配置信息", config), app.quit()))
+        dialog.show()
         sys.exit(app.exec())
-    
-    elif choice == "3":
-        # 先显示爆炸性，再显示着火点
-        explosion_dialog = ExplosionExperimentDialog("EXP-20241201-001")
-        explosion_dialog.exp_name_input.setText("煤粉爆炸性测试")
-        explosion_dialog.sample_name_input.setText("煤粉样品A")
-        explosion_dialog.client_input.setText("北京科技大学")
-        explosion_dialog.operator_input.setText("张三")
-        explosion_dialog.note_input.setPlainText("这是测试备注信息")
-        
-        ignition_dialog = IgnitionExperimentDialog("IGN-20241201-001")
-        ignition_dialog.exp_name_input.setText("煤粉着火点测试")
-        ignition_dialog.sample_name_inputs[0].setText("样品1")
-        ignition_dialog.sample_name_inputs[1].setText("样品2")
-        ignition_dialog.sample_name_inputs[2].setText("样品3")
-        ignition_dialog.sample_name_inputs[3].setText("样品4")
-        ignition_dialog.sample_name_inputs[4].setText("样品5")
-        ignition_dialog.sample_name_inputs[5].setText("样品6")
-        ignition_dialog.client_input.setText("北京科技大学")
-        ignition_dialog.operator_input.setText("李四")
-        ignition_dialog.note_input.setPlainText("这是着火点测试备注")
-        
-        def on_explosion_confirmed(config):
-            print_config("爆炸性实验配置信息", config)
-            explosion_dialog.close()
-            # 显示着火点对话框
-            ignition_dialog.show()
-        
-        def on_ignition_confirmed(config):
-            print_config("着火点实验配置信息", config)
-            app.quit()
-        
-        explosion_dialog.confirmed.connect(on_explosion_confirmed)
-        ignition_dialog.confirmed.connect(on_ignition_confirmed)
-        explosion_dialog.show()
-        sys.exit(app.exec())
-    
-    elif choice == "4":
-        print("\n退出程序")
-        return
-    
     else:
-        print("\n无效选项，退出程序")
-        return
+        print("\n退出程序")
 
 
 if __name__ == "__main__":
     main()
-

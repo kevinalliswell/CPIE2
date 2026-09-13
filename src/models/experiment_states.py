@@ -103,8 +103,10 @@ class ExplosionExperimentState(Enum):
         valid_transitions: dict[ExplosionExperimentState, Set[ExplosionExperimentState]] = {
             self.IDLE: {self.CONNECTED},
             self.CONNECTED: {self.IDLE, self.SESSION_CREATED},
-            self.SESSION_CREATED: {self.SEQUENCE_RUNNING, self.CANCELLED, self.ERROR},
-            self.SEQUENCE_RUNNING: {self.WAITING_ANALYSIS, self.CANCELLED, self.ERROR},
+            # SESSION_CREATED 允许直接完成实验（can_finalize 包含该状态，且轮次结束后页面会回到该状态）
+            self.SESSION_CREATED: {self.SEQUENCE_RUNNING, self.COMPLETED, self.CANCELLED, self.ERROR},
+            # 用户在时序运行中主动停止时回到 SESSION_CREATED，以便重试本轮或完成实验
+            self.SEQUENCE_RUNNING: {self.WAITING_ANALYSIS, self.SESSION_CREATED, self.CANCELLED, self.ERROR},
             self.WAITING_ANALYSIS: {self.SEQUENCE_RUNNING, self.SESSION_CREATED, self.COMPLETED, self.CANCELLED, self.ERROR},
             self.COMPLETED: {self.CONNECTED, self.SESSION_CREATED},  # 完成状态可以直接创建新实验，或回到连接状态
             self.CANCELLED: set(),  # 取消状态是终态

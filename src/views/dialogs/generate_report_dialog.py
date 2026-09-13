@@ -418,13 +418,22 @@ class GenerateReportDialog(QDialog):
         sample_count_label.setStyleSheet("color: #aaa; font-size: 12px; margin-left: 10px;")
         layout.addWidget(sample_count_label)
         
-        # 样品列表
+        # 样品列表（按样品实际位置编号，未填写的槽位不占用编号）
         if samples:
             for i, sample in enumerate(samples, 1):
-                sample_item = self.create_sample_item_ignition(i, sample)
+                sample_item = self.create_sample_item_ignition(sample.get('position', i), sample)
                 layout.addWidget(sample_item)
-        
+
         return widget
+
+    @staticmethod
+    def _sample_name_for_position(samples, pos):
+        """按样品位置（1-6）查找样品名称；samples 列表只包含已填写名称的样品，不能按下标取"""
+        default_name = f"样品{pos}"
+        for sample in samples or []:
+            if sample.get('position') == pos:
+                return sample.get('name') or default_name
+        return default_name
     
     def create_sample_item_ignition(self, position: int, sample: Dict) -> QWidget:
         """创建单个样品项（着火点实验）"""
@@ -728,10 +737,8 @@ class GenerateReportDialog(QDialog):
                 pos = data['sample_position']
                 temp = data.get('ignition_temperature')
                 
-                # 获取样品名称
-                sample_name = f"样品{pos}"
-                if samples and pos <= len(samples):
-                    sample_name = samples[pos-1].get('name', sample_name)
+                # 获取样品名称（按样品位置查找：samples 列表会跳过未填写的样品槽位，不能按下标取）
+                sample_name = self._sample_name_for_position(samples, pos)
                 
                 if temp is not None:
                     test_label = QLabel(
@@ -838,47 +845,26 @@ class GenerateReportDialog(QDialog):
             return []
         
         try:
-            # 获取实验的开始和结束时间
-            start_time = self.exp_data.get('start_time')
-            end_time = self.exp_data.get('end_time')
-            
-            if not start_time or not end_time:
+            # 按会话ID读取该实验的全部温度数据（含相对实验开始的 elapsed_seconds）。
+            # 旧实现按 start_time/end_time 做时间范围查询，而实时数据的时间戳曾由
+            # SQLite CURRENT_TIMESTAMP（UTC）写入，与本地时间的会话时间不在同一时区，
+            # 查询结果为空，报告中的温度曲线会被静默省略。
+            session_data = self.ignition_db.get_session_temperature_data(self.exp_id)
+            if not session_data:
                 return []
-            
-            # 从数据库获取时间范围内的数据
-            data_list = self.ignition_db.get_data_by_time_range(start_time, end_time)
-            
-            if not data_list:
-                return []
-            
-            # 转换为图表需要的格式
-            import datetime
-            start_dt = datetime.datetime.strptime(start_time[:19], '%Y-%m-%d %H:%M:%S')
-            
+
             temp_series = []
-            for data in data_list:
-                timestamp = data.get('timestamp')
-                if timestamp:
-                    try:
-                        if '.' in timestamp:
-                            dt = datetime.datetime.strptime(timestamp[:19], '%Y-%m-%d %H:%M:%S')
-                        else:
-                            dt = datetime.datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
-                        
-                        elapsed_seconds = (dt - start_dt).total_seconds()
-                        
-                        temp_series.append({
-                            'elapsed_seconds': elapsed_seconds,
-                            'sample1_temperature': data.get('ch1'),
-                            'sample2_temperature': data.get('ch2'),
-                            'sample3_temperature': data.get('ch3'),
-                            'sample4_temperature': data.get('ch4'),
-                            'sample5_temperature': data.get('ch5'),
-                            'sample6_temperature': data.get('ch6'),
-                        })
-                    except (ValueError, TypeError):
-                        continue
-            
+            for record in session_data:
+                temp_series.append({
+                    'elapsed_seconds': record.get('elapsed_seconds', 0.0),
+                    'sample1_temperature': record.get('sample1_temperature'),
+                    'sample2_temperature': record.get('sample2_temperature'),
+                    'sample3_temperature': record.get('sample3_temperature'),
+                    'sample4_temperature': record.get('sample4_temperature'),
+                    'sample5_temperature': record.get('sample5_temperature'),
+                    'sample6_temperature': record.get('sample6_temperature'),
+                })
+
             return temp_series
         except Exception as e:
             print(f"获取温度序列失败: {e}")
@@ -978,7 +964,8 @@ class GenerateReportDialog(QDialog):
                 samples = self.exp_data.get('samples', [])
                 doc.add_paragraph(f"共 {len(samples)} 个样品")
                 for i, sample in enumerate(samples, 1):
-                    doc.add_paragraph(f"样品{i}: {sample.get('name', f'样品{i}')}", style='List Bullet')
+                    pos = sample.get('position', i)
+                    doc.add_paragraph(f"样品{pos}: {sample.get('name', f'样品{pos}')}", style='List Bullet')
             
             # 实验方法
             doc.add_heading('三、实验方法', 1)
@@ -1072,9 +1059,7 @@ class GenerateReportDialog(QDialog):
                         sample_table.rows[0].cells[0].text = "样品名称"
                         for col_idx, data in enumerate(batch_data):
                             pos = data['sample_position']
-                            sample_name = f"样品{pos}"
-                            if samples and pos <= len(samples):
-                                sample_name = samples[pos-1].get('name', sample_name)
+                            sample_name = self._sample_name_for_position(samples, pos)
                             sample_table.rows[0].cells[col_idx + 1].text = sample_name
                         
                         # 第二行：着火温度
@@ -1147,6 +1132,7 @@ class GenerateReportDialog(QDialog):
         from datetime import datetime
         import os
         import platform
+        from xml.sax.saxutils import escape  # reportlab Paragraph 会解析 XML 标记，用户文本必须转义
         
         exp_code = self.exp_data.get('experiment_code', 'UNKNOWN')
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -1233,7 +1219,7 @@ class GenerateReportDialog(QDialog):
                 fontSize=12,
                 alignment=1  # 居中
             )
-            story.append(Paragraph(f"实验编号: {exp_code}", code_style))
+            story.append(Paragraph(f"实验编号: {escape(str(exp_code))}", code_style))
             story.append(Spacer(1, 1*cm))
             
             # 创建支持中文的样式
@@ -1285,12 +1271,13 @@ class GenerateReportDialog(QDialog):
             story.append(Spacer(1, 0.3*cm))
             
             if self.exp_type == 'explosion':
-                story.append(Paragraph(f"样品名称: {self.exp_data.get('sample_name', 'N/A')}", normal_style))
+                story.append(Paragraph(f"样品名称: {escape(str(self.exp_data.get('sample_name', 'N/A')))}", normal_style))
             else:
                 samples = self.exp_data.get('samples', [])
                 story.append(Paragraph(f"共 {len(samples)} 个样品", normal_style))
                 for i, sample in enumerate(samples, 1):
-                    story.append(Paragraph(f"样品{i}: {sample.get('name', f'样品{i}')}", normal_style))
+                    pos = sample.get('position', i)
+                    story.append(Paragraph(f"样品{pos}: {escape(str(sample.get('name', f'样品{pos}')))}", normal_style))
             
             story.append(Spacer(1, 0.5*cm))
             
@@ -1405,9 +1392,7 @@ class GenerateReportDialog(QDialog):
                         sample_temps = []
                         for data in batch_data:
                             pos = data['sample_position']
-                            sample_name = f"样品{pos}"
-                            if samples and pos <= len(samples):
-                                sample_name = samples[pos-1].get('name', sample_name)
+                            sample_name = self._sample_name_for_position(samples, pos)
                             sample_names.append(sample_name)
                             
                             temp = data.get('ignition_temperature')
@@ -1443,7 +1428,7 @@ class GenerateReportDialog(QDialog):
             story.append(Paragraph(f'{section_num}、实验结论', heading2_style))
             story.append(Spacer(1, 0.3*cm))
             conclusion = self.exp_data.get('conclusion', '实验数据符合标准要求。')
-            story.append(Paragraph(conclusion, normal_style))
+            story.append(Paragraph(escape(str(conclusion)).replace('\n', '<br/>'), normal_style))
             story.append(Spacer(1, 0.5*cm))
             
             # 备注
@@ -1451,7 +1436,7 @@ class GenerateReportDialog(QDialog):
             story.append(Paragraph(f'{section_num}、备注', heading2_style))
             story.append(Spacer(1, 0.3*cm))
             notes = self.exp_data.get('notes', '无')
-            story.append(Paragraph(notes, normal_style))
+            story.append(Paragraph(escape(str(notes)).replace('\n', '<br/>'), normal_style))
             story.append(Spacer(1, 1*cm))
             
             # 报告生成时间（使用中文字体）

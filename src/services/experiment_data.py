@@ -23,7 +23,7 @@ class BaseExperimentData:
     remarks: List[str] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ReductionExperimentData(BaseExperimentData):
     """
     铁矿石还原性实验 (GB/T 13241-2017) 数据模型
@@ -51,7 +51,7 @@ class ReductionExperimentData(BaseExperimentData):
     # ... 其他分析结果
 
 
-@dataclass
+@dataclass(kw_only=True)
 class RDIExperimentData(BaseExperimentData):
     """
     铁矿石低温还原粉化实验 (GB/T 13242-2017) 数据模型
@@ -89,7 +89,7 @@ class PelletData:
     strength_evaluation: Optional[str] = None
 
 
-@dataclass
+@dataclass(kw_only=True)
 class SwellingExperimentData(BaseExperimentData):
     """
     球团矿自由膨胀指数实验 (GB/T 13240-2017) 数据模型

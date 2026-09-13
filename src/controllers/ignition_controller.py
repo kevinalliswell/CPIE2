@@ -9,7 +9,7 @@ import logging
 import threading
 import json
 from datetime import datetime
-from PySide6.QtCore import QObject, Signal, QTimer
+from PySide6.QtCore import QObject, Signal, QTimer, Slot, QMetaObject, Qt
 
 from modbus_multi_device import ModbusDeviceManager
 from models.ignition_database import IgnitionDatabase
@@ -90,10 +90,19 @@ class IgnitionController(QObject):
             # 执行连接
             if self.manager.connect():
                 # 启动设备管理器（开始数据采集）
-                self.manager.start()
-                
+                if not self.manager.start():
+                    self.manager.disconnect()
+                    self.manager = None
+                    self.device_connected.emit(False, "设备管理器启动失败")
+                    self.logger.error("设备管理器启动失败")
+                    self.log_message.emit("✗ 设备管理器启动失败")
+                    return
+
                 # 启动实时数据监控（用于UI显示和副屏）
-                self.start_data_monitoring()
+                # QTimer 只能在其所属线程启动，此处位于后台线程，需投递到控制器所在线程执行
+                QMetaObject.invokeMethod(
+                    self, "start_data_monitoring", Qt.ConnectionType.QueuedConnection
+                )
                 
                 # 更新状态
                 self._set_state(IgnitionExperimentState.CONNECTED)
@@ -531,15 +540,17 @@ class IgnitionController(QObject):
             'is_running': self.is_running,
             'session_id': self.current_session_id,
             'experiment_config': self.current_experiment_config,
-            'device_connected': self.manager is not None and hasattr(self.manager, 'started')
+            'device_connected': self.manager is not None and bool(getattr(self.manager, 'connected', False))
         }
-    
+
+    @Slot()
     def start_data_monitoring(self):
         """启动数据监控（用于副屏实时数据推送）"""
         if not self.data_monitor_timer.isActive():
             self.data_monitor_timer.start()
             self.logger.info("数据监控已启动")
-    
+
+    @Slot()
     def stop_data_monitoring(self):
         """停止数据监控"""
         if self.data_monitor_timer.isActive():
@@ -644,13 +655,13 @@ class IgnitionController(QObject):
                 self.data_monitor_timer.stop()
                 self.logger.debug("数据监控定时器已停止")
             
-            # 停止设备管理器
+            # 停止设备管理器并关闭串口（disconnect 内部会先 stop，未连接时为空操作）
             if self.manager:
                 try:
-                    if hasattr(self.manager, 'stop'):
+                    if hasattr(self.manager, 'disconnect'):
+                        self.manager.disconnect()
+                    elif hasattr(self.manager, 'stop'):
                         self.manager.stop()
-                    if hasattr(self.manager, 'close'):
-                        self.manager.close()
                     self.logger.debug("设备管理器已停止")
                 except Exception as e:
                     self.logger.error(f"停止设备管理器失败: {e}")

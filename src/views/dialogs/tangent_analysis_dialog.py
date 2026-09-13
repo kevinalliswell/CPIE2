@@ -246,8 +246,10 @@ class TangentAnalysisDialog(QDialog):
                 for i in range(6)
             ]
             
-            # 创建检测器
-            tangent_config = self.config.get('ignition_detection', {}).get('tangent_method', {})
+            # 创建检测器（兼容传入完整配置根节点或 ignition_experiment 子节点）
+            config = self.config or {}
+            config = config.get('ignition_experiment', config)
+            tangent_config = config.get('ignition_detection', {}).get('tangent_method', {})
             detector = TangentMethodDetector(tangent_config)
             
             # 对每个样品进行分析
@@ -321,9 +323,9 @@ class TangentAnalysisDialog(QDialog):
                 f"<b>置信度:</b> <span style='color: {confidence_color};'>{confidence:.2f}</span>"
                 f"{confidence_warning}<br>"
                 f"<b>基线拟合:</b> y = {result['baseline_fit'][0]:.3f}x + {result['baseline_fit'][1]:.3f} "
-                f"(R={result.get('baseline_r', 0):.3f})<br>"
+                f"(R={result.get('r1', result.get('baseline_r', 0)):.3f})<br>"
                 f"<b>峰顶拟合:</b> y = {result['peak_fit'][0]:.3f}x + {result['peak_fit'][1]:.3f} "
-                f"(R={result.get('peak_r', 0):.3f})"
+                f"(R={result.get('r2', result.get('peak_r', 0)):.3f})"
             )
             label.setStyleSheet(f"""
                 font-size: 11pt;
@@ -505,8 +507,8 @@ class TangentAnalysisDialog(QDialog):
                         'confidence': 1.0,
                         'baseline_fit': [0, 0],
                         'peak_fit': [0, 0],
-                        'baseline_r': 0,
-                        'peak_r': 0,
+                        'r1': 0,
+                        'r2': 0,
                         'baseline_range': [0, 0],
                         'peak_range': [0, 0]
                     }

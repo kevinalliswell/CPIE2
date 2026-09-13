@@ -169,8 +169,11 @@ def test_play_pause_toggles_when_results_are_available(widget, processor_module)
 
 def test_processor_injection_is_supported(qapp, widget_module, config_module, processor_module, temp_image_dir, monkeypatch):
     from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QMessageBox
 
     monkeypatch.setattr(QTimer, "singleShot", staticmethod(lambda _delay, callback: None))
+    # closeEvent 在分析未完成时会弹出模态确认框，无头环境下会永久阻塞 pytest
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *args, **kwargs: QMessageBox.Yes))
     mock_processor = Mock(spec=processor_module.FlameImageProcessor)
 
     widget = widget_module.FlameAnalyzerWidget(
@@ -182,4 +185,26 @@ def test_processor_injection_is_supported(qapp, widget_module, config_module, pr
         assert widget.processor is mock_processor
     finally:
         widget.close()
+        widget.deleteLater()
+
+
+def test_reject_emits_window_closed(qapp, widget_module, config_module, processor_module, temp_image_dir, monkeypatch):
+    """Esc / reject() 必须走 closeEvent 路径并发出 window_closed，否则爆炸页面收不到本轮结果"""
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QMessageBox
+
+    monkeypatch.setattr(QTimer, "singleShot", staticmethod(lambda _delay, callback: None))
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *args, **kwargs: QMessageBox.Yes))
+
+    widget = widget_module.FlameAnalyzerWidget(
+        input_folder=str(temp_image_dir),
+        config=config_module.FlameAnalyzerConfig(),
+        processor=Mock(spec=processor_module.FlameImageProcessor),
+    )
+    received = []
+    widget.window_closed.connect(received.append)
+    try:
+        widget.reject()
+        assert received == [{}]
+    finally:
         widget.deleteLater()

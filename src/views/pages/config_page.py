@@ -750,7 +750,11 @@ class ConfigPage(QWidget):
             try:
                 # 重新加载实验配置文件
                 with open(self.config_path, 'r', encoding='utf-8') as f:
-                    self.config = yaml.safe_load(f)
+                    fresh_config = yaml.safe_load(f) or {}
+                # 原地更新：实验页面持有同一个配置字典的引用，
+                # 直接替换对象会导致之后的"应用配置"改到一个无人读取的字典
+                self.config.clear()
+                self.config.update(fresh_config)
                 
                 # 重新加载火焰分析器配置
                 self.flame_analyzer_config = self._load_flame_analyzer_config()

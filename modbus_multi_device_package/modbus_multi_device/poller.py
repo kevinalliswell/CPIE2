@@ -178,17 +178,34 @@ class ControlExecutor:
         )
         self.executor_thread.start()
     
-    def stop(self):
-        """停止控制执行器"""
+    def stop(self, flush_timeout: float = 3.0):
+        """
+        停止控制执行器
+
+        停止前会在 flush_timeout 秒内等待队列中尚未执行的控制命令执行完毕
+        （例如实验停止/程序退出时下发的"关闭全部继电器"命令），
+        避免这些安全相关的命令被直接丢弃。
+
+        Args:
+            flush_timeout: 等待队列清空的最长时间（秒），<=0 表示不等待直接丢弃
+        """
+        if (flush_timeout > 0 and self.running and self.executor_thread
+                and self.executor_thread.is_alive()):
+            deadline = time.time() + flush_timeout
+            while not self.control_queue.empty() and time.time() < deadline:
+                time.sleep(0.01)
+            if not self.control_queue.empty():
+                print(f"控制执行器停止: 超时后仍有 {self.control_queue.qsize()} 条命令未执行，已丢弃")
+
         self.running = False
-        
-        # 清空队列
+
+        # 清空残留队列
         while not self.control_queue.empty():
             try:
                 self.control_queue.get_nowait()
             except queue.Empty:
                 break
-        
+
         if self.executor_thread:
             self.executor_thread.join(timeout=2.0)
     

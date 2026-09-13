@@ -68,7 +68,16 @@ class ModbusDeviceManager:
         log_level = getattr(logging, log_config.get('level', 'INFO'))
         self.logger = logging.getLogger('ModbusManager')
         self.logger.setLevel(log_level)
-        
+
+        # 'ModbusManager' 是进程内共享的命名日志器，每次重新连接都会新建管理器实例，
+        # 先移除旧实例安装的处理器，避免日志重复输出和文件句柄泄漏
+        for handler in list(self.logger.handlers):
+            self.logger.removeHandler(handler)
+            try:
+                handler.close()
+            except Exception:
+                pass
+
         # 控制台输出
         console_handler = logging.StreamHandler()
         console_handler.setLevel(log_level)
@@ -137,9 +146,15 @@ class ModbusDeviceManager:
             
             self.connected = True
             return True
-            
+
         except Exception as e:
             self.logger.error(f"连接失败: {e}")
+            # 串口可能已经打开，必须关闭，否则重试连接时端口被占用
+            if self.client:
+                try:
+                    self.client.close()
+                except Exception:
+                    pass
             return False
     
     def _init_devices(self):
@@ -228,10 +243,17 @@ class ModbusDeviceManager:
         
         # 关闭串口
         if self.client:
-            self.client.close()
-        
+            try:
+                self.client.close()
+            except Exception as e:
+                self.logger.warning(f"关闭串口失败: {e}")
+
         self.connected = False
         self.logger.info("已断开连接")
+
+    def close(self):
+        """disconnect() 的别名，便于统一的资源清理调用"""
+        self.disconnect()
     
     def start(self):
         """启动数据采集和控制"""
