@@ -282,6 +282,7 @@ hiddenimports = [
     
     # 本地包
     "flamekit",
+    "flamekit.core",
     "flamekit.analyzer",
     "flamekit.camera",
     "flamekit.config",

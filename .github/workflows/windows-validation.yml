@@ -58,6 +58,9 @@ jobs:
         with:
           repository: kevinalliswell/flame-package
           ref: ${{ env.FLAMEKIT_COMMIT }}
+          # pip serves this checkout through file:// below. A shallow server
+          # causes filtered clone to recurse while resolving promised objects.
+          fetch-depth: 0
           ssh-key: ${{ secrets.FLAMEKIT_DEPLOY_KEY }}
           persist-credentials: false
           path: .ci-dependencies/flamekit
@@ -69,6 +72,14 @@ jobs:
           source = Path('.ci-dependencies/flamekit').resolve()
           actual = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
           assert actual == os.environ['FLAMEKIT_COMMIT'], actual
+          shallow = subprocess.check_output(['git', '-C', str(source), 'rev-parse', '--is-shallow-repository'], text=True).strip()
+          if shallow != 'false':
+              raise SystemExit('FlameKit must be a complete checkout (fetch-depth: 0), not a shallow local Git server')
+          partial = subprocess.run(['git', '-C', str(source), 'config', '--get-regexp', r'remote\..*\.promisor|extensions\.partialclone'], capture_output=True, text=True)
+          if partial.returncode not in (0, 1):
+              partial.check_returncode()
+          if partial.returncode == 0:
+              raise SystemExit('FlameKit partial/promisor checkouts cannot be used as a local Git server')
           # Only this exact repository URL is redirected, only for pip's
           # child processes. No global git configuration or secret survives
           # checkout. pip still records the original VCS URL and commit.

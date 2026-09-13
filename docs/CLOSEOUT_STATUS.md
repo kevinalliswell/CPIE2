@@ -18,7 +18,7 @@
 
 FlameKit 仓库为私有。2026-09-13 经用户授权，已创建专用只读 Deploy Key（ID `163152948`），私钥保存为 CPIE2 Actions Secret `FLAMEKIT_DEPLOY_KEY`。已用该密钥读取固定提交 `114f457c46689180a33fa1122809e926ec46de12`，并确认不能读取 CPIE2 私有仓库；GitHub 返回 `read_only=true`，本机临时私钥已清理。发布流程仅向验证任务传递这一项 Secret。缺少授权时明确失败，不跳过依赖或验证。
 
-Windows 首次 [Actions 运行](https://github.com/kevinalliswell/CPIE2/actions/runs/34751490128) 在执行任何步骤前被账号 Actions 预算限制阻止。密钥配置只解决依赖访问权限；预算限制仍以之后的运行结果为准，尚不能据此声明 Windows 验证通过。
+Windows 首次 [Actions 运行](https://github.com/kevinalliswell/CPIE2/actions/runs/34751490128) 在执行任何步骤前被账号 Actions 预算限制阻止。2026-09-13 用户恢复预算后，Windows runner 已正常启动，并成功使用专用密钥读取私有依赖。预检还确认 FlameKit 的动态 `core` 导入需要显式纳入 PyInstaller，现已补齐。最终自动化结果以当前 PR 的 Windows 检查及其证据为准，不能仅凭环境启动就认定验证通过。
 
 代码与模拟测试不能证明现场继电器、加热器、压力模块和相机已通过验收。具体执行步骤和证据位置见 [Windows 实机验收记录](HARDWARE_ACCEPTANCE.md)。本轮不创建发布 tag，不把未验收的候选版本声明为正式结项。
 
