@@ -9,6 +9,7 @@ opens the operator's database, modifies camera calibration, or connects devices.
 """
 import argparse
 import json
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -103,6 +104,12 @@ def application_smoke(output):
 
         Tools.apply_stylesheet('dark')
         window = MainWindow()
+        file_handlers = [handler for handler in logging.getLogger().handlers
+                         if isinstance(handler, logging.FileHandler)]
+        assert file_handlers, 'Application file logging was not initialized'
+        for handler in file_handlers:
+            Path(handler.baseFilename).resolve().relative_to(root.resolve())
+        report['logs_isolated'] = True
         recovered = recover_interrupted_sessions(window)
         assert recovered == {'explosion': 1, 'ignition': 1}, recovered
         report['recovered_sessions'] = recovered

@@ -9,7 +9,6 @@ Utils Module
 
 from importlib import import_module
 
-from .logger import LoggerManager, get_logger, logger_manager
 from .path_manager import PathManager
 
 __all__ = [
@@ -27,6 +26,9 @@ __all__ = [
 __version__ = '1.0.0'
 
 _LAZY_IMPORTS = {
+    'LoggerManager': '.logger',
+    'get_logger': '.logger',
+    'logger_manager': '.logger',
     'DataSaver': '.data_saver',
     'DataExportDialog': '.data_saver',
     'PasswordManager': '.password_manager',
