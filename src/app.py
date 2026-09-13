@@ -1,5 +1,6 @@
 from pathlib import Path
 import argparse
+import os
 import sys
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -7,6 +8,21 @@ SRC_DIR = PROJECT_ROOT / 'src'
 for path in (PROJECT_ROOT, SRC_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
+
+
+def configure_console_streams():
+    """Keep dependency output usable in frozen Windows and windowless starts.
+
+    Frozen Python may ignore PYTHONIOENCODING. Qt's runtime hook can also
+    replace absent console streams with locale-encoded handles to devnull.
+    Configure them before importing code that prints Chinese diagnostics.
+    """
+    for name in ('stdout', 'stderr'):
+        stream = getattr(sys, name, None)
+        if stream is None:
+            setattr(sys, name, open(os.devnull, 'w', encoding='utf-8', errors='backslashreplace'))
+        elif hasattr(stream, 'reconfigure'):
+            stream.reconfigure(encoding='utf-8', errors='backslashreplace')
 
 
 def recover_interrupted_sessions(window):
@@ -22,6 +38,7 @@ def recover_interrupted_sessions(window):
 
 
 def main() -> int:
+    configure_console_streams()
     if '--smoke-test' in sys.argv:
         parser = argparse.ArgumentParser(description='Isolated, hardware-free startup verification')
         parser.add_argument('--smoke-test', action='store_true')
