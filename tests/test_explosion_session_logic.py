@@ -151,7 +151,6 @@ def test_session_logic():
     print("✅ 所有测试通过！")
     print("=" * 60)
     
-    return True
 
 
 def test_button_state_logic():

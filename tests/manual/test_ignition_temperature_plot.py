@@ -13,7 +13,7 @@ from datetime import datetime
 import sqlite3
 
 # 添加项目路径
-project_root = Path(__file__).parent
+project_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(project_root / 'src'))
 
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QComboBox

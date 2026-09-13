@@ -3,6 +3,8 @@
 """
 
 import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from PySide6.QtWidgets import QApplication
 from src.views.dialogs.explosion_experiment_dialog import ExplosionExperimentDialog
 from src.views.dialogs.ignition_experiment_dialog import IgnitionExperimentDialog

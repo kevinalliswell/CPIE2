@@ -4,6 +4,7 @@
 
 import json
 import sys
+import importlib
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -17,7 +18,7 @@ if str(SRC_ROOT) not in sys.path:
 
 @pytest.fixture
 def ignition_database(tmp_path):
-    module = pytest.importorskip("models.ignition_database")
+    module = importlib.import_module("models.ignition_database")
     db = module.IgnitionDatabase(str(tmp_path / "ignition_logic.db"))
     try:
         yield db
@@ -27,14 +28,14 @@ def ignition_database(tmp_path):
 
 @pytest.fixture
 def ignition_state():
-    module = pytest.importorskip("models.experiment_states")
+    module = importlib.import_module("models.experiment_states")
     return module.IgnitionExperimentState
 
 
 @pytest.fixture
 def controller(ignition_database):
-    pytest.importorskip("PySide6")
-    controller_module = pytest.importorskip("controllers.ignition_controller")
+    importlib.import_module("PySide6")
+    controller_module = importlib.import_module("controllers.ignition_controller")
     controller = controller_module.IgnitionController(
         config={
             "collect_start_temperature": 200.0,
@@ -113,24 +114,27 @@ def test_collect_data_respects_temperature_gates(controller, ignition_state, exp
     controller.start_experiment = MagicMock(return_value=True)
 
     controller.manager.get_latest_data.side_effect = lambda device_name: {
-        "着火点-温控仪表": {"pv": 150.0},
+        "着火点-温控仪表": {"pv": 150.0, "sample_id": 1},
         "着火点-温度模块": {
+            "sample_id": 1,
             "channels": [{"temperature": 100.0} for _ in range(6)]
         },
     }.get(device_name)
     assert controller.collect_data() is False
 
     controller.manager.get_latest_data.side_effect = lambda device_name: {
-        "着火点-温控仪表": {"pv": 300.0},
+        "着火点-温控仪表": {"pv": 300.0, "sample_id": 1},
         "着火点-温度模块": {
+            "sample_id": 1,
             "channels": [{"temperature": 250.0 + index} for index in range(6)]
         },
     }.get(device_name)
     assert controller.collect_data() is True
 
     controller.manager.get_latest_data.side_effect = lambda device_name: {
-        "着火点-温控仪表": {"pv": 510.0},
+        "着火点-温控仪表": {"pv": 510.0, "sample_id": 1},
         "着火点-温度模块": {
+            "sample_id": 1,
             "channels": [{"temperature": 500.0} for _ in range(6)]
         },
     }.get(device_name)
@@ -140,8 +144,8 @@ def test_collect_data_respects_temperature_gates(controller, ignition_state, exp
 
 
 def test_collect_end_temperature_defaults_to_500_when_missing(ignition_database, ignition_state, experiment_config):
-    pytest.importorskip("PySide6")
-    controller_module = pytest.importorskip("controllers.ignition_controller")
+    importlib.import_module("PySide6")
+    controller_module = importlib.import_module("controllers.ignition_controller")
     controller = controller_module.IgnitionController(config={"collect_start_temperature": 200.0})
     controller.db.close()
     controller.db = ignition_database
@@ -152,8 +156,9 @@ def test_collect_end_temperature_defaults_to_500_when_missing(ignition_database,
     controller.is_running = True
     controller.current_state = ignition_state.RUNNING
     controller.manager.get_latest_data.side_effect = lambda device_name: {
-        "着火点-温控仪表": {"pv": 510.0},
+        "着火点-温控仪表": {"pv": 510.0, "sample_id": 1},
         "着火点-温度模块": {
+            "sample_id": 1,
             "channels": [{"temperature": 500.0} for _ in range(6)]
         },
     }.get(device_name)

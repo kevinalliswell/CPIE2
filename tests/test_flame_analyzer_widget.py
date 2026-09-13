@@ -4,6 +4,7 @@
 
 import os
 import sys
+import importlib
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -15,18 +16,6 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    pytest.importorskip("cv2")
-    pytest.importorskip("numpy")
-    pytest.importorskip("PySide6")
-
-    from PySide6.QtWidgets import QApplication
-
-    app = QApplication.instance() or QApplication([])
-    return app
 
 
 @pytest.fixture
@@ -52,8 +41,8 @@ def processor_module(qapp):
 
 @pytest.fixture
 def temp_image_dir(tmp_path):
-    np = pytest.importorskip("numpy")
-    cv2 = pytest.importorskip("cv2")
+    np = importlib.import_module("numpy")
+    cv2 = importlib.import_module("cv2")
 
     image_dir = tmp_path / "images"
     image_dir.mkdir()
@@ -169,7 +158,9 @@ def test_play_pause_toggles_when_results_are_available(widget, processor_module)
 
 def test_processor_injection_is_supported(qapp, widget_module, config_module, processor_module, temp_image_dir, monkeypatch):
     from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QMessageBox
 
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *args, **kwargs: QMessageBox.Yes))
     monkeypatch.setattr(QTimer, "singleShot", staticmethod(lambda _delay, callback: None))
     mock_processor = Mock(spec=processor_module.FlameImageProcessor)
 
