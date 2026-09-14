@@ -264,9 +264,26 @@ def test_prepare_shutdown_failure_preserves_database_and_manager(controller, man
 def test_stop_waits_for_sequence_and_old_on_cannot_follow_off(controller, manager):
     from models.experiment_states import ExplosionExperimentState as State
     device = RelayDevice()
-    device.block_first_write = True
+    # The initial all-OFF preflight must finish. Block the first ON so the
+    # original stop-vs-in-flight-control race remains the behavior under test.
+    original_write = device.write_control
+    block_next_on = [True]
+
+    def write_with_blocked_on(command):
+        if command.get('set_relay', {}).get('state') and block_next_on[0]:
+            block_next_on[0] = False
+            device.block_first_write = True
+        return original_write(command)
+
+    device.write_control = write_with_blocked_on
     start_manager(manager, device)
+    manager._on_data_received({'device': '爆炸性-温控仪表', 'pv': 1100.0})
+    manager._on_data_received({'device': '爆炸性-压力表', 'pressure': 50.0})
     controller.manager = manager
+    controller.config['control_conditions'] = {
+        'target_temperature': {'value': 1100.0, 'tolerance': 2.0},
+        'target_pressure': {'value': 50.0, 'tolerance': 2.0},
+    }
     session_with_round(controller)
     controller.config["sequence_steps"] = [
         {"step": 1, "name": "open", "action": "relay_on", "relay": "first"},

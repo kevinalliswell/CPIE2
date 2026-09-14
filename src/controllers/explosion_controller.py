@@ -13,6 +13,7 @@ from flamekit import FlameKit
 from modbus_multi_device import ModbusDeviceManager
 from models.explosion_database import ExplosionDatabase
 from models.experiment_states import ExplosionExperimentState
+from services.explosion.experiment_validator import ExperimentValidator
 from utils.path_manager import PathManager
 
 
@@ -38,13 +39,14 @@ class ExplosionController(QObject):
     flame_image_updated = Signal(object)  # 火焰图像更新
     device_status_changed = Signal(str, bool)  # 设备状态变化 (设备名, 在线状态)
     
-    def __init__(self, config=None, parent=None):
+    def __init__(self, config=None, parent=None, camera_round_guard=None):
         """
         初始化控制器
         
         Args:
             config: 实验配置
             parent: 父对象
+            camera_round_guard: 可选采集窗口检查，在时序线程中接收检查阶段并返回 bool
         """
         super().__init__(parent)
         
@@ -89,6 +91,7 @@ class ExplosionController(QObject):
         self._closing = False
         self._shutdown_prepared = False
         self._control_timeout = float(self.config.get('control_timeout', 5.0))
+        self.camera_round_guard = camera_round_guard
 
     def _interruptible_wait(self, duration_seconds: float) -> bool:
         """分片等待，允许时序停止时尽快退出。返回True表示完成等待。"""
@@ -307,12 +310,33 @@ class ExplosionController(QObject):
             self.log_message.emit(f"✗ 当前状态不允许启动实验: {self.current_state.description()}")
             return False
         
+        # A previous manual-clean operation may have left valves open. Establish
+        # a known starting position, then recheck fresh conditions immediately
+        # before admission (the UI confirmation may have been open for minutes).
+        self._stop_requested.clear()
+        if not self._shutdown_relays():
+            self._set_state(ExplosionExperimentState.ERROR)
+            return False
+        valid, message = ExperimentValidator(self.config, self.manager).check_conditions()
+        if not valid:
+            self.log_message.emit(f"✗ 启动前检查失败: {message}")
+            return False
+        if self._closing or self._stop_requested.is_set():
+            return False
+        try:
+            rounds = self.db.get_session_test_rounds(self.current_session_id)
+            next_round = max((r['round_number'] for r in rounds), default=0) + 1
+        except Exception as exc:
+            self.log_message.emit(f"✗ 无法读取已保存轮次: {exc}")
+            return False
         if not self.manager.resume_controls('爆炸性-继电器'):
             self.log_message.emit("✗ 尚未确认继电器安全关闭，不能启动新轮次")
             return False
-        self._stop_requested.clear()
-        # 增加轮次
-        self.current_round_number += 1
+        if self._closing or self._stop_requested.is_set():
+            self._shutdown_relays()
+            return False
+        # Cancelled/failed attempts have no stored result and retry this number.
+        self.current_round_number = next_round
         
         # 启动时序控制
         self._start_sequence()
@@ -341,6 +365,19 @@ class ExplosionController(QObject):
         # 在新线程中执行时序
         self._sequence_thread = threading.Thread(target=self._execute_sequence, daemon=True)
         self._sequence_thread.start()
+
+    def _execute_relay_on(self, relay):
+        """Every sequence spray, including grouped actions, uses the capture gate."""
+        guard = self.camera_round_guard if relay == 'spray_valve' else None
+        if relay == 'spray_valve':
+            self.spray_valve_opened.emit()
+            if guard is not None and not guard('before_spray'):
+                raise RuntimeError('相机尚未开始有效采集，已中止喷吹')
+        if not self.control_relay(relay, True):
+            return False
+        if guard is not None and not guard('after_spray'):
+            raise RuntimeError('喷吹确认时相机采集窗口已结束，本轮无效')
+        return True
     
     def _execute_sequence(self):
         """执行时序控制；每条指令等待实执行，所有结束路径先完成 OFF 收尾。"""
@@ -361,10 +398,7 @@ class ExplosionController(QObject):
 
                 if action == 'relay_on':
                     relay = step['relay']
-                    # 如果是打开喷吹阀，发送信号触发拍摄
-                    if relay == 'spray_valve':
-                        self.spray_valve_opened.emit()
-                    if not self.control_relay(relay, True):
+                    if not self._execute_relay_on(relay):
                         self._abort_sequence(f"步骤{step_num} 执行失败: 无法打开继电器 {relay}")
                         break
 
@@ -377,7 +411,7 @@ class ExplosionController(QObject):
                 elif action == 'relay_multi_on':
                     relays = step['relays']
                     for relay in relays:
-                        if not self.control_relay(relay, True):
+                        if not self._execute_relay_on(relay):
                             self._abort_sequence(f"步骤{step_num} 执行失败: 无法打开继电器 {relay}")
                             break
                     if not self.sequence_running:
@@ -508,6 +542,34 @@ class ExplosionController(QObject):
         except Exception as exc:
             self.log_message.emit(f"✗ 继电器控制异常: {exc}")
             return False
+
+    def set_auto_clean(self, enabled: bool) -> bool:
+        """Run manual cleaning only after prior sequence work and OFF are confirmed."""
+        thread = self._sequence_thread
+        if (self._closing or self.sequence_running or self.is_running
+                or (thread and thread.is_alive())):
+            self.log_message.emit("✗ 时序运行或退出准备期间不能执行自清洁")
+            return False
+        if not self.manager or not self.manager.connected:
+            self.log_message.emit("✗ 设备未连接，不能执行自清洁")
+            return False
+        if not enabled:
+            return self._shutdown_relays()
+
+        # Only this explicit, idle operation may reopen control admission.
+        # Clearing once before OFF preserves any stop arriving during its wait.
+        self._stop_requested.clear()
+        if not self._shutdown_relays():
+            return False
+        if self._closing or self._stop_requested.is_set():
+            return False
+        if not self.manager.resume_controls('爆炸性-继电器'):
+            return False
+        for relay in ('spray_valve', 'purge_valve', 'vacuum_cleaner'):
+            if not self.control_relay(relay, True):
+                self._shutdown_relays()
+                return False
+        return True
 
     def control_temperature_controller(self, action: str):
         """
