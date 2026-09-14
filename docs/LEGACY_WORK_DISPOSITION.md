@@ -20,7 +20,7 @@
 
 | 提交 | 独有内容 | 当前去向 |
 |---|---|---|
-| `b0b6d07` | `flame_package/flamekit/camera.py` 的全帧内存缓冲采集 | 已被选定的外部 FlameKit 提交 `114f457c46689180a33fa1122809e926ec46de12` 覆盖：本次比较安装后的 camera.py 与 dev 文件，字节相同。无需重新合入内置包。长时采集、内存上限和落盘失败仍需验证。 |
+| `b0b6d07` | `flame_package/flamekit/camera.py` 的全帧内存缓冲采集 | 9 月 13 日以外部 FlameKit 提交 `114f457c46689180a33fa1122809e926ec46de12` 核对，与 dev 文件字节相同。9 月 14 日在此外部版本之上修复采集完整性、内存预算、落盘及生命周期问题，当前不可变提交见 requirements.txt 和专项审查；保留采集后落盘方式，不重新合入内置副本。 |
 | `19c0b4b` | 嵌套 `CPIE2/flame_package/` 下的 `.github/workflows/release.yml`、`.gitignore`、`CHANGELOG.md` | 独立包整理时的遗留副本，不在 main 基线，也不带入收敛分支；内容保存在 dev 和 bundle。 |
 | `9b7567f` | `flame_package/` 下的 release workflow、gitignore、changelog、README、license 调整和 `__version__=1.1.2` | 属于 FlameKit 独立包发行材料。应用使用外部固定提交，不保留一套独立包发行流程；旧材料保存在 dev 和 bundle。未据此声称这些材料已在上游发布。 |
 

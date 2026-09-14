@@ -490,6 +490,7 @@ coll = COLLECT(
         doc_files = [
             "README.md", "QUICK_START.md", "BUILD_GUIDE.md", "requirements.txt",
             "CHANGELOG.md", "LICENSE", "docs/HARDWARE_ACCEPTANCE.md",
+            "docs/CAMERA_EXPLOSION_AUDIT.md",
         ]
         for doc_file in doc_files:
             src_file = self.project_root / doc_file

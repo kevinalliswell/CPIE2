@@ -24,7 +24,7 @@ macOS 仅用于开发与软件验证：可用 `python3.9 -m venv .venv`，之后
 `requirements.txt` 使用以下不可变来源：
 
 ```text
-flamekit @ git+https://github.com/kevinalliswell/flame-package.git@114f457c46689180a33fa1122809e926ec46de12
+flamekit @ git+https://github.com/kevinalliswell/flame-package.git@52f2614ac0eaa60e9a8b1233ad664b559ea1777f
 ```
 
 本地 pip 调用 Git 拉取此源码，需要当前 Git 身份具备该私有仓库读取权限。不要在依赖文件中写入令牌或私钥，也不要改回本地 `flame_package/`。上游 `v1.1.3` 引用所指源码的安装元数据仍为 `1.1.2`，因此必须用完整提交 SHA 核对来源，不能只比较包版本字符串。

@@ -9,6 +9,7 @@ CPIE 为 CPIE-3000A 实验设备提供 PySide6 桌面界面，包含着火点温
 - 实验操作人员：[快速开始](QUICK_START.md)，使用经过验收的完整 Windows 安装包。
 - 开发与交付人员：[构建与发布指南](BUILD_GUIDE.md)，重建环境、测试并生成候选包。
 - 当前剩余工作：[收敛状态](docs/CLOSEOUT_STATUS.md) 和 [Windows 实机验收记录](docs/HARDWARE_ACCEPTANCE.md)。
+- 相机和完整轮次的本轮修复、参数边界见 [专项审查](docs/CAMERA_EXPLOSION_AUDIT.md)。
 - 变更与历史材料：[更新记录](CHANGELOG.md) 和 [旧工作去向](docs/LEGACY_WORK_DISPOSITION.md)。
 
 ## 源码运行
@@ -26,7 +27,7 @@ py -3.9 -m venv .venv
 
 请检出需要验证的明确提交或候选分支后安装依赖；默认分支不一定已包含本轮候选变更。上述命令无需激活虚拟环境。只运行应用安装 `requirements.txt`；需要测试或打包时，改装包含运行依赖的 `requirements-dev.txt`，并同样安装本地 Modbus 包。
 
-FlameKit 已移出本仓库，通过 `requirements.txt` 固定到外部源码提交 `114f457c46689180a33fa1122809e926ec46de12`。不要再安装本地 `flame_package/`。访问失败时先配置该私有仓库的 Git 读取权限；不能通过删除依赖继续安装。本仓库 CI 已配置专用只读 Deploy Key，详见构建指南。
+FlameKit 已移出本仓库，通过 `requirements.txt` 固定到外部源码提交 `52f2614ac0eaa60e9a8b1233ad664b559ea1777f`。不要再安装本地 `flame_package/`。访问失败时先配置该私有仓库的 Git 读取权限；不能通过删除依赖继续安装。本仓库 CI 已配置专用只读 Deploy Key，详见构建指南。
 
 首次启动先检查页面、配置和历史功能，再按现场规程连接设备。真实实验还需要相应串口设备、驱动及相机 SDK；它们不由 pip 自动完成现场配置。
 
