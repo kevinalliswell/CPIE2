@@ -10,15 +10,15 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 
+from utils.password_manager import PasswordManager
+
 
 class PasswordConfirmDialog(QDialog):
-    """密码确认对话框"""
-    
-    # 默认密码
-    DEFAULT_PASSWORD = "1952"
-    
-    def __init__(self, parent=None):
+    """密码确认对话框（口令由 PasswordManager 管理，可通过 Ctrl+Alt+P 修改）"""
+
+    def __init__(self, parent=None, password_manager: PasswordManager = None):
         super().__init__(parent)
+        self.password_manager = password_manager or PasswordManager()
         self.setup_ui()
         self.setup_shortcuts()
     
@@ -199,7 +199,7 @@ class PasswordConfirmDialog(QDialog):
             return
         
         # 验证密码
-        if password == self.DEFAULT_PASSWORD:
+        if self.password_manager.verify_password(password):
             self.hide_error()
             self.accept()
         else:

@@ -127,13 +127,26 @@ class FlameKit:
 		finally:
 			cv2.destroyWindow(window_name)
 
-	def capture_one_second(self, temp_dir: Optional[str] = None) -> Tuple[List[str], int]:
+	def capture_one_second(self, temp_dir: Optional[str] = None,
+	                       duration: Optional[float] = None) -> Tuple[List[str], int]:
 		"""
-		高速采集 1s（目录可配置），返回(图片路径列表, 帧数)
+		高速采集（默认 1s，时长与目录可配置），返回(图片路径列表, 帧数)
+
+		Args:
+			temp_dir: 采集目录；默认取配置 paths.temp_dir（相对当前工作目录）
+			duration: 采集时长（秒）；默认取构造时的 capture_duration，否则 1.0
 		"""
 		if not self.initialize():
 			print("相机未就绪，无法采集")
 			return [], 0
+
+		if duration is None:
+			duration = self.camera.capture_duration
+		try:
+			duration = float(duration) if duration else 1.0
+		except (TypeError, ValueError):
+			duration = 1.0
+		duration = max(0.1, duration)
 
 		temp_dir = temp_dir or self.config.get('paths.temp_dir', './temp_captures')
 		os.makedirs(temp_dir, exist_ok=True)
@@ -147,7 +160,7 @@ class FlameKit:
 			except Exception as _:
 				pass
 
-		imgs, n = self.camera.capture_sequence(temp_dir, duration=1.0)
+		imgs, n = self.camera.capture_sequence(temp_dir, duration=duration)
 		self._last_image_paths = imgs
 		return imgs, n
 

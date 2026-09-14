@@ -77,6 +77,10 @@ class ExplosionExperimentPage(QWidget):
         self.max_flame_length = 0.0
         self.max_flame_image_path = None
         self.flame_analyzer_window = None  # 火焰分析器窗口引用
+        self.preview_dialog = None  # 相机预览窗口引用
+        # 相机拍摄参数（configs/experiment_config.yaml: explosion_experiment.camera）
+        # 相机高速采集的原始目录（与 temp_dir 分开：采集后再复制到 temp_dir 供分析）
+        self.camera_capture_dir = PathManager.get_data_path("camera_captures")
         
         # 多轮实验管理
         self.round_records = []  # 存储每轮实验记录 [{round: 1, flame_length: 150.5, image_path: "xxx"}, ...]
@@ -840,13 +844,31 @@ class ExplosionExperimentPage(QWidget):
         # 使用统一按钮状态管理
         self._update_button_states()
     
+    def _camera_config(self) -> dict:
+        """相机拍摄配置（capture_duration / trigger_delay 单位：秒）"""
+        camera_config = self.config.get('camera', {}) if isinstance(self.config, dict) else {}
+        try:
+            duration = float(camera_config.get('capture_duration', 1.0) or 1.0)
+        except (TypeError, ValueError):
+            duration = 1.0
+        try:
+            trigger_delay = float(camera_config.get('trigger_delay', 0.0) or 0.0)
+        except (TypeError, ValueError):
+            trigger_delay = 0.0
+        return {'capture_duration': max(0.1, duration), 'trigger_delay': max(0.0, trigger_delay)}
+
     def _on_spray_valve_opened(self):
-        """处理喷吹阀打开事件 - 触发高速拍照"""
-        if self.camera_enabled:
+        """处理喷吹阀打开事件 - 触发高速拍照（可配置触发延时）"""
+        if not self.camera_enabled:
+            self.log_message.emit("⚠ 相机未初始化，跳过拍照")
+            return
+        trigger_delay = self._camera_config()['trigger_delay']
+        if trigger_delay > 0:
+            self.log_message.emit(f"喷吹阀打开，{trigger_delay:g} 秒后开始高速拍照...")
+            QTimer.singleShot(int(trigger_delay * 1000), self._trigger_camera_capture)
+        else:
             self.log_message.emit("喷吹阀打开，开始高速拍照...")
             self._trigger_camera_capture()
-        else:
-            self.log_message.emit("⚠ 相机未初始化，跳过拍照")
     
     def _on_controller_sequence_completed(self):
         """处理控制器的时序完成事件"""
@@ -1177,10 +1199,29 @@ class ExplosionExperimentPage(QWidget):
             QMessageBox.critical(self, "错误", f"参数标定失败:\n{e}")
     
     def _toggle_preview(self):
-        """切换预览"""
-        # TODO: 实现预览功能
-        self.flame_kit.preview(60)
-        self.log_message.emit("✓ 预览成功")
+        """切换相机预览（非阻塞窗口：再次点击或关闭窗口即停止）"""
+        try:
+            from views.dialogs.camera_preview_dialog import CameraPreviewDialog
+
+            if self.preview_dialog is not None and self.preview_dialog.isVisible():
+                self.preview_dialog.close()
+                self.preview_dialog = None
+                self.log_message.emit("✓ 预览已关闭")
+                return
+
+            dialog = CameraPreviewDialog(self.flame_kit, parent=self, timeout_s=60.0)
+            if not dialog.start():
+                dialog.deleteLater()
+                self.log_message.emit("✗ 相机未就绪，无法预览")
+                QMessageBox.warning(self, "预览", "相机未就绪，无法预览，请先初始化相机")
+                return
+            dialog.setAttribute(Qt.WA_DeleteOnClose, True)
+            dialog.destroyed.connect(lambda *_: setattr(self, 'preview_dialog', None))
+            self.preview_dialog = dialog
+            dialog.show()
+            self.log_message.emit("✓ 预览窗口已打开（最长 60 秒，可随时关闭）")
+        except Exception as e:
+            self.log_message.emit(f"✗ 打开预览失败: {e}")
     
     def _manual_capture(self):
         """手动拍摄"""
@@ -1201,9 +1242,12 @@ class ExplosionExperimentPage(QWidget):
             # 确保临时文件夹存在
             os.makedirs(self.temp_dir, exist_ok=True)
             
-            # 调用相机拍摄
-            images, count = self.flame_kit.capture_one_second()
-            self.log_message.emit(f"✓ 手动拍摄完成，共计拍摄：{count} 帧")
+            # 调用相机拍摄（时长来自配置；采集目录使用项目 data 目录下的绝对路径）
+            duration = self._camera_config()['capture_duration']
+            images, count = self.flame_kit.capture_one_second(
+                temp_dir=self.camera_capture_dir, duration=duration
+            )
+            self.log_message.emit(f"✓ 手动拍摄完成（{duration:g} 秒），共计拍摄：{count} 帧")
             
             # 保存图像到临时文件夹
             for image in images:
@@ -1233,9 +1277,12 @@ class ExplosionExperimentPage(QWidget):
             # 确保临时文件夹存在
             os.makedirs(self.temp_dir, exist_ok=True)
             
-            # 调用相机高速拍摄
-            images, count = self.flame_kit.capture_one_second()
-            self.log_message.emit(f"✓ 自动拍摄完成，共计拍摄：{count} 帧")
+            # 调用相机高速拍摄（时长来自配置；采集目录使用项目 data 目录下的绝对路径）
+            duration = self._camera_config()['capture_duration']
+            images, count = self.flame_kit.capture_one_second(
+                temp_dir=self.camera_capture_dir, duration=duration
+            )
+            self.log_message.emit(f"✓ 自动拍摄完成（{duration:g} 秒），共计拍摄：{count} 帧")
 
             # 保存图像到临时文件夹
             for image in images:
@@ -1646,12 +1693,13 @@ class ExplosionExperimentPage(QWidget):
                 avg_length = self.controller.calculate_session_average(self.current_session_id)
                 self.log_message.emit(f"前5轮平均火焰长度: {avg_length:.2f}mm")
 
-                phase_threshold = self.config.get('test-rounds', {}).get('phase-decision-threshold', 20.0)
+                # 与 RoundManager 的阶段判定使用同一阈值（test-rounds.phase-decision-threshold）
+                phase_threshold = self.round_manager.phase_decision_threshold
                 if avg_length < phase_threshold:
                     reply = QMessageBox.question(
                         self,
                         '继续测试',
-                        f'前5轮平均火焰长度为 {avg_length:.2f}mm，低于{phase_threshold:.0f}mm。\n'
+                        f'前5轮平均火焰长度为 {avg_length:.2f}mm，低于{phase_threshold:g}mm。\n'
                         f'根据实验流程，需要继续进行后5轮测试。\n\n'
                         f'是否现在继续第6轮测试？',
                         QMessageBox.Yes | QMessageBox.No,
@@ -1818,6 +1866,14 @@ class ExplosionExperimentPage(QWidget):
                     self.flame_analyzer_window.close()
                 except Exception:
                     pass
+
+            # 关闭相机预览窗口
+            if getattr(self, 'preview_dialog', None) is not None:
+                try:
+                    self.preview_dialog.close()
+                except Exception:
+                    pass
+                self.preview_dialog = None
             
             # 数据库由Controller管理，无需在此关闭
             

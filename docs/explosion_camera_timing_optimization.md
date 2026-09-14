@@ -167,9 +167,11 @@ explosion_experiment:
 ```yaml
 camera:
   enabled: true
-  capture_duration: 1.0     # 拍摄持续时间（秒）
-  trigger_delay: 0.5        # 触发延迟（保留，暂未使用）
+  capture_duration: 1.0     # 拍摄持续时间（秒），传给 FlameKit.capture_one_second(duration=...)
+  trigger_delay: 0.0        # 喷吹阀打开到开始拍摄的延时（秒），0 表示立即拍摄；>0 时用 QTimer 延时触发
 ```
+
+两个参数都会在爆炸性实验页面实际生效（配置页"相机设置"可修改）。
 
 ---
 

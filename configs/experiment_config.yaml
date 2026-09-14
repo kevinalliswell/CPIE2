@@ -174,8 +174,8 @@ explosion_experiment:
     retry_delay: 0.5
   camera:
     enabled: true
-    capture_duration: 1.0
-    trigger_delay: 0.5
+    capture_duration: 1.0  # 喷吹后高速拍摄时长 (s)
+    trigger_delay: 0.0     # 喷吹阀打开到开始拍摄的延时 (s)；0 表示立即拍摄（与旧版本行为一致）
   control_conditions:
     target_temperature:
       value: 1100.0

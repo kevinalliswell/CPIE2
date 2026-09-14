@@ -26,6 +26,14 @@ class RoundManager:
         self.threshold_no_explosion = thresholds_config.get('no-explosion', 25.0)
         self.threshold_weak_explosion = thresholds_config.get('weak-explosion', 400.0)
         self.threshold_strong_explosion = thresholds_config.get('strong-explosion', 800.0)
+
+        # 第一阶段结束后的判定阈值：前 phase_rounds 轮平均火焰长度低于该值时需继续第二阶段。
+        # 配置键为 test-rounds.phase-decision-threshold；未配置时沿用无爆炸性上限。
+        phase_threshold = test_rounds_config.get('phase-decision-threshold', self.threshold_no_explosion)
+        try:
+            self.phase_decision_threshold = float(phase_threshold)
+        except (TypeError, ValueError):
+            self.phase_decision_threshold = float(self.threshold_no_explosion)
     
     def evaluate_explosion_level(self, avg_flame_length: float):
         """
@@ -62,11 +70,12 @@ class RoundManager:
         # 计算第一阶段平均值
         avg_length = sum(r['flame_length'] for r in round_records[:self.phase_rounds]) / self.phase_rounds
         
-        if avg_length < self.threshold_no_explosion:
-            reason = f"前{self.phase_rounds}轮平均火焰长度为 {avg_length:.1f}mm，低于{self.threshold_no_explosion}mm阈值，需要进行第二阶段（第{self.phase_rounds + 1}-{self.max_rounds}轮）测试"
+        threshold = self.phase_decision_threshold
+        if avg_length < threshold:
+            reason = f"前{self.phase_rounds}轮平均火焰长度为 {avg_length:.1f}mm，低于{threshold:g}mm阈值，需要进行第二阶段（第{self.phase_rounds + 1}-{self.max_rounds}轮）测试"
             return True, reason
         else:
-            reason = f"前{self.phase_rounds}轮平均火焰长度为 {avg_length:.1f}mm，达到{self.threshold_no_explosion}mm阈值，可以结束测试"
+            reason = f"前{self.phase_rounds}轮平均火焰长度为 {avg_length:.1f}mm，达到{threshold:g}mm阈值，可以结束测试"
             return False, reason
     
     def get_next_action(self, current_round: int, round_records: list):
@@ -87,13 +96,14 @@ class RoundManager:
         # 第一阶段完成
         if current_round == self.phase_rounds:
             avg_length = sum(r['flame_length'] for r in round_records) / len(round_records)
-            
-            if avg_length < self.threshold_no_explosion:
+            threshold = self.phase_decision_threshold
+
+            if avg_length < threshold:
                 return {
                     'action': 'phase2',
                     'message': f'前{self.phase_rounds}轮实验完成！平均火焰长度: {avg_length:.1f} mm\n'
-                               f'判断结果: 平均值低于{self.threshold_no_explosion}mm\n'
-                               f'⚠ 不满足检测标准要求（需≥{self.threshold_no_explosion}mm）\n\n'
+                               f'判断结果: 平均值低于{threshold:g}mm\n'
+                               f'⚠ 不满足检测标准要求（需≥{threshold:g}mm）\n\n'
                                f'是否继续进行第二阶段（第{self.phase_rounds + 1}-{self.max_rounds}轮）实验？',
                     'meets_standard': False
                 }

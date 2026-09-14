@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 from utils.logger import get_logger
+from utils.password_hash import hash_password, is_hashed, verify_password
 from utils.path_manager import PathManager
 
 
@@ -33,6 +34,12 @@ class UserManager:
     
     # 单例模式：当前登录用户
     _current_user: Optional[User] = None
+    
+    # 首次运行时创建的默认账号 (用户名, 初始口令, 角色)；口令以哈希形式入库
+    DEFAULT_USERS = (
+        ('admin', 'admin123', 'admin'),
+        ('experimenter', 'exp123', 'experimenter'),
+    )
     
     def __init__(self, db_path: Optional[str] = None):
         """
@@ -94,24 +101,16 @@ class UserManager:
             count = self.cursor.fetchone()[0]
             
             if count == 0:
-                # 创建默认管理员账号
-                admin_created_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                self.cursor.execute("""
-                    INSERT INTO users (username, password, role, created_at)
-                    VALUES (?, ?, ?, ?)
-                """, ('admin', 'admin123', 'admin', admin_created_at))
-                
-                # 创建默认实验员账号
-                exp_created_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                self.cursor.execute("""
-                    INSERT INTO users (username, password, role, created_at)
-                    VALUES (?, ?, ?, ?)
-                """, ('experimenter', 'exp123', 'experimenter', exp_created_at))
+                # 口令只保存 PBKDF2 哈希，不写明文
+                for username, password, role in self.DEFAULT_USERS:
+                    created_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    self.cursor.execute("""
+                        INSERT INTO users (username, password, role, created_at)
+                        VALUES (?, ?, ?, ?)
+                    """, (username, hash_password(password), role, created_at))
                 
                 self.conn.commit()
-                self.logger.info("✓ 默认用户账号初始化成功")
-                self.logger.info("  - 管理员: admin / admin123")
-                self.logger.info("  - 实验员: experimenter / exp123")
+                self.logger.info("✓ 默认用户账号初始化成功（admin / experimenter），请尽快修改默认口令")
             else:
                 self.logger.debug("用户表已存在数据，跳过默认用户初始化")
         except sqlite3.Error as e:
@@ -132,13 +131,16 @@ class UserManager:
         """
         try:
             self.cursor.execute("""
-                SELECT username, role FROM users
-                WHERE username = ? AND password = ?
-            """, (username, password))
+                SELECT username, role, password FROM users
+                WHERE username = ?
+            """, (username,))
             
             result = self.cursor.fetchone()
             
-            if result:
+            if result and verify_password(password, result[2]):
+                # 旧版本明文口令：验证通过后透明升级为哈希
+                if not is_hashed(result[2]):
+                    self._store_password(username, password)
                 user = User(username=result[0], role=result[1])
                 self.logger.info(f"✓ 用户认证成功: {username} ({result[1]})")
                 return user
@@ -148,6 +150,20 @@ class UserManager:
         except sqlite3.Error as e:
             self.logger.error(f"✗ 用户认证出错: {e}")
             return None
+    
+    def _store_password(self, username: str, password: str) -> bool:
+        """以哈希形式写入用户口令"""
+        try:
+            self.cursor.execute(
+                "UPDATE users SET password = ? WHERE username = ?",
+                (hash_password(password), username),
+            )
+            self.conn.commit()
+            return self.cursor.rowcount > 0
+        except sqlite3.Error as e:
+            self.logger.error(f"✗ 写入口令失败: {e}")
+            self.conn.rollback()
+            return False
     
     def get_current_user(self) -> Optional[User]:
         """
@@ -227,34 +243,25 @@ class UserManager:
         Returns:
             如果修改成功返回True，否则返回False
         """
+        if not new_password:
+            self.logger.warning(f"✗ 修改密码失败: 新密码不能为空 ({username})")
+            return False
         try:
-            # 先验证旧密码
-            self.cursor.execute("""
-                SELECT id FROM users
-                WHERE username = ? AND password = ?
-            """, (username, old_password))
-            
+            # 先验证旧密码（兼容旧版明文存储）
+            self.cursor.execute(
+                "SELECT password FROM users WHERE username = ?", (username,)
+            )
             result = self.cursor.fetchone()
             
-            if not result:
+            if not result or not verify_password(old_password, result[0]):
                 self.logger.warning(f"✗ 修改密码失败: 旧密码不正确 ({username})")
                 return False
             
-            # 更新密码
-            self.cursor.execute("""
-                UPDATE users
-                SET password = ?
-                WHERE username = ? AND password = ?
-            """, (new_password, username, old_password))
-            
-            self.conn.commit()
-            
-            if self.cursor.rowcount > 0:
+            if self._store_password(username, new_password):
                 self.logger.info(f"✓ 密码修改成功: {username}")
                 return True
-            else:
-                self.logger.warning(f"✗ 密码修改失败: 未找到匹配的用户 ({username})")
-                return False
+            self.logger.warning(f"✗ 密码修改失败: 未找到匹配的用户 ({username})")
+            return False
         except sqlite3.Error as e:
             self.logger.error(f"✗ 修改密码出错: {e}")
             self.conn.rollback()

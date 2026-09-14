@@ -132,8 +132,8 @@ class FlameAnalysisHandler:
         # 计算平均值
         avg_length = self.round_manager.calculate_average(round_records)
         level_text, _ = self.round_manager.evaluate_explosion_level(avg_length)
-        # 检测标准阈值来自配置（与 RoundManager 保持一致），不再硬编码
-        standard_threshold = self.round_manager.threshold_no_explosion
+        # 检测标准阈值来自配置 test-rounds.phase-decision-threshold（与 RoundManager 的阶段判定一致）
+        standard_threshold = self.round_manager.phase_decision_threshold
 
         # 如果没有指定meets_standard，则自动判断
         if meets_standard is None:
@@ -190,7 +190,7 @@ class FlameAnalysisHandler:
         
         avg_length = self.round_manager.calculate_average(round_records)
         level_text, _ = self.round_manager.evaluate_explosion_level(avg_length)
-        standard_threshold = self.round_manager.threshold_no_explosion
+        standard_threshold = self.round_manager.phase_decision_threshold
 
         logs = []
         logs.append("=" * 50)
