@@ -25,6 +25,7 @@ from utils.path_manager import PathManager
 
 # 导入服务层
 from services.explosion import ExperimentValidator, RoundManager, FlameAnalysisHandler
+from services.explosion.camera_workflow import ExplosionCameraWorkflow
 
 # 导入UI组件
 from views.widgets.explosion import (
@@ -105,8 +106,18 @@ class ExplosionExperimentPage(QWidget):
         # === 初始化服务层 ===
         # 注意：在manager初始化后才能创建validator
         self.validator = None  # 稍后在设备连接后初始化
-        self.round_manager = RoundManager(config)
-        self.flame_handler = FlameAnalysisHandler(self.round_manager, self.controller.db)
+        self._configuration_error = None
+        self.round_manager = None
+        self.flame_handler = None
+        try:
+            self.round_manager = RoundManager(config)
+            self.flame_handler = FlameAnalysisHandler(self.round_manager, self.controller.db)
+        except (ValueError, TypeError) as error:
+            # Keep Settings reachable so the operator can correct the actual
+            # saved values. Never substitute another experimental procedure.
+            self._configuration_error = str(error)
+        self.camera_flow = ExplosionCameraWorkflow(self)
+        self.controller.camera_round_guard = self.camera_flow.guard_spray
         
         # 连接线程安全的信号
         self.log_message.connect(self._thread_safe_log)
@@ -124,6 +135,10 @@ class ExplosionExperimentPage(QWidget):
         # 创建定时器
         self.update_timer = QTimer()
         self.update_timer.timeout.connect(self._update_display)
+        if self._configuration_error:
+            self.lbl_status.setText('实验配置无效，请在设置中修正后重启')
+            self.log_message.emit(self._configuration_error)
+            self._update_button_states()
     
     def _connect_controller_signals(self):
         """连接控制器信号（使用队列连接确保线程安全）"""
@@ -161,8 +176,8 @@ class ExplosionExperimentPage(QWidget):
         )
         # 连接喷吹阀信号（用于触发拍摄）
         self.controller.spray_valve_opened.connect(
-            self._on_spray_valve_opened,
-            Qt.QueuedConnection
+            self.camera_flow.trigger,
+            Qt.DirectConnection  # This handler only queues work; it never touches widgets.
         )
     
     def _init_ui(self):
@@ -301,8 +316,8 @@ class ExplosionExperimentPage(QWidget):
         self.lbl_status.setStyleSheet("font-weight: bold; font-size: 12pt;")
         layout.addWidget(self.lbl_status, 3, 0, 1, 2)
         
-        # 第5行：检测标准标签（跨2列）
-        lbl_standard = QLabel("检测标准: GB/T AQ/T 1045-2010《煤尘爆炸性鉴定规范》")
+        # 配置流程完成并不构成对具体检测规范的符合性认证。
+        lbl_standard = QLabel("实验规程：请核对现场采用的规范及轮次配置")
         lbl_standard.setStyleSheet("font-size: 9pt; color: #666666; padding: 5px 0px;")
         lbl_standard.setWordWrap(True)
         layout.addWidget(lbl_standard, 4, 0, 1, 2)
@@ -659,6 +674,9 @@ class ExplosionExperimentPage(QWidget):
     
     def _on_new_experiment(self):
         """新建实验（通过控制器）"""
+        if self._configuration_error:
+            self.log_message.emit(self._configuration_error)
+            return
         try:
             # 生成实验编号
             exp_id = self.controller.generate_experiment_id()
@@ -747,6 +765,9 @@ class ExplosionExperimentPage(QWidget):
     
     def _on_start_experiment(self):
         """启动实验（通过控制器）"""
+        if not self.camera_flow.available():
+            self.log_message.emit("✗ 请先处理当前拍摄、预览或未保存的分析结果")
+            return
         # 检查是否已创建实验
         if self.controller.current_session_id is None:
             QMessageBox.warning(
@@ -776,35 +797,27 @@ class ExplosionExperimentPage(QWidget):
         
         # 检查相机是否初始化
         if not self.camera_enabled:
-            reply = QMessageBox.warning(
-                self,
-                "相机未初始化",
-                "相机尚未初始化，无法进行高速拍照。\n\n"
-                "是否仍要继续实验？\n"
-                "（继续将跳过拍照环节）",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
-            )
-            if reply == QMessageBox.No:
-                self.log_message.emit("✗ 实验取消：相机未初始化")
-                return
-            else:
-                self.log_message.emit("⚠ 用户选择在相机未初始化的情况下继续实验")
+            QMessageBox.warning(self, "相机未初始化", "本轮需要有效图像，请先初始化相机。")
+            return
         
         # 显示实验信息并确认启动
+        rounds = self.controller.get_session_test_rounds(self.current_session_id)
+        next_round = max((row['round_number'] for row in rounds), default=0) + 1
         reply = QMessageBox.question(
             self,
             '确认启动',
             f'确定要启动爆炸性实验吗？\n\n'
             f'实验名称: {self.current_exp_config["experiment_name"]}\n'
             f'样品名称: {self.current_exp_config["sample_name"]}\n'
-            f'当前轮次: 第 {self.controller.current_round_number + 1} 轮\n\n'
+            f'当前轮次: 第 {next_round} 轮\n\n'
             f'这将执行完整的时序控制流程。',
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
         
         if reply == QMessageBox.Yes:
+            if not self.camera_flow.prepare_round(self.current_session_id, next_round):
+                return
             # 重置UI数据
             self.start_time = time.time()
             self.temp_history.clear()
@@ -814,10 +827,15 @@ class ExplosionExperimentPage(QWidget):
             self.max_flame_image_path = None
             
             # 使用控制器启动
-            self.controller.start_experiment()
+            if not self.controller.start_experiment():
+                self.camera_flow.cancel_round()
+                self.log_message.emit("✗ 启动条件或设备关断检查失败，本轮未启动")
+            self._update_button_states()
     
     def _on_controller_experiment_started(self):
         """处理控制器的实验启动事件"""
+        if self.controller.current_state != ExplosionExperimentState.SEQUENCE_RUNNING:
+            return
         # 更新本地状态（兼容性）
         self.is_running = True
         self.sequence_running = True
@@ -829,22 +847,18 @@ class ExplosionExperimentPage(QWidget):
     
     def _on_spray_valve_opened(self):
         """处理喷吹阀打开事件 - 触发高速拍照"""
-        if self.camera_enabled:
-            self.log_message.emit("喷吹阀打开，开始高速拍照...")
-            self._trigger_camera_capture()
-        else:
-            self.log_message.emit("⚠ 相机未初始化，跳过拍照")
+        self.camera_flow.trigger()
     
     def _on_controller_sequence_completed(self):
         """处理控制器的时序完成事件"""
+        if self.controller.current_state != ExplosionExperimentState.WAITING_ANALYSIS:
+            return
         # 更新本地状态
         self.sequence_running = False
+        self.is_running = False
         
-        # 自动打开火焰分析器：延迟到当前事件处理完成后再执行，
-        # 确保 sequence_completed 信号与按钮状态先更新。
-        # 注意：_analyze_flame 是普通方法（非注册的 Qt 槽），
-        # 因此不能用 QMetaObject.invokeMethod 按名称调用，改用 singleShot 投递到事件循环。
-        QTimer.singleShot(0, self._analyze_flame)
+        # 等待时序正常结束和本轮采集、落盘均成功，再允许分析。
+        self.camera_flow.sequence_finished()
         
         # 发送完成信号
         self.sequence_completed.emit()
@@ -868,10 +882,10 @@ class ExplosionExperimentPage(QWidget):
         
         self.log_message.emit("开始自清洁...")
         # 打开喷吹阀、吹扫阀、吸尘器
-        self.controller.control_relay('spray_valve', True)
-        self.controller.control_relay('purge_valve', True)
-        self.controller.control_relay('vacuum_cleaner', True)
-        self.log_message.emit("✓ 自清洁已开启")
+        if self.controller.set_auto_clean(True):
+            self.log_message.emit("✓ 自清洁已开启")
+        else:
+            self.log_message.emit("✗ 自清洁开启失败，请检查设备状态")
     
     def _on_auto_clean_off(self):
         """自清洁关：关闭喷吹阀、吹扫阀、吸尘器"""
@@ -885,10 +899,10 @@ class ExplosionExperimentPage(QWidget):
         
         self.log_message.emit("关闭自清洁...")
         # 关闭喷吹阀、吹扫阀、吸尘器
-        self.controller.control_relay('spray_valve', False)
-        self.controller.control_relay('purge_valve', False)
-        self.controller.control_relay('vacuum_cleaner', False)
-        self.log_message.emit("✓ 自清洁已关闭")
+        if self.controller.set_auto_clean(False):
+            self.log_message.emit("✓ 自清洁已关闭")
+        else:
+            self.log_message.emit("✗ 自清洁关闭未确认，请重试停止")
     
     def _verify_relays_off(self, step_config):
         """验证继电器全部关闭"""
@@ -922,11 +936,17 @@ class ExplosionExperimentPage(QWidget):
         
         # 如果正在运行，执行停止操作
         if state in {ExplosionExperimentState.SEQUENCE_RUNNING, ExplosionExperimentState.ERROR}:
+            self.camera_flow.cancel_round()
             self.controller.stop_experiment()
             return
         
         # 如果正在等待分析
         if state == ExplosionExperimentState.WAITING_ANALYSIS:
+            if self.camera_flow.context is not None:
+                self.camera_flow.cancel_round()
+                self.controller.stop_experiment()
+                self.log_message.emit("本轮已放弃，原始文件保留；可重新采集同一轮")
+                return
             # 检查是否还在运行
             if self.is_running or self.sequence_running:
                 # 先停止，停止完成后会触发_on_controller_experiment_stopped
@@ -944,9 +964,12 @@ class ExplosionExperimentPage(QWidget):
     
     def _on_controller_experiment_stopped(self):
         """处理控制器的实验停止事件"""
+        if self.controller.current_state == ExplosionExperimentState.SEQUENCE_RUNNING:
+            return
         # 更新本地状态（兼容性）
         self.is_running = False
         self.sequence_running = False
+        self.camera_flow.cancel_round()
         
         # 使用统一按钮状态管理
         self._update_button_states()
@@ -957,6 +980,9 @@ class ExplosionExperimentPage(QWidget):
     
     def _finalize_experiment_internal(self):
         """完成实验内部方法（由智能按钮调用）"""
+        if self.camera_flow.context is not None or self.camera_flow.busy:
+            self.log_message.emit("✗ 当前轮次尚未保存，请先分析或放弃本轮")
+            return
         # 1. 检查是否有活动会话
         if not self.current_session_id:
             QMessageBox.warning(self, "提示", "当前没有活动的实验会话")
@@ -1050,6 +1076,8 @@ class ExplosionExperimentPage(QWidget):
         
         # 新建实验：使用枚举方法
         self.btn_new_experiment.setEnabled(state.can_create_experiment())
+        if self._configuration_error:
+            self.btn_new_experiment.setEnabled(False)
         
         # 温控器运行/停止按钮（只在设备已连接后启用）
         if hasattr(self, 'btn_controller_run'):
@@ -1058,7 +1086,7 @@ class ExplosionExperimentPage(QWidget):
             self.btn_controller_stop.setEnabled(state != ExplosionExperimentState.IDLE)
         
         # 启动实验：使用枚举方法
-        self.btn_start.setEnabled(state.can_start())
+        self.btn_start.setEnabled(state.can_start() and self.camera_flow.available())
         
         # 停止/完成按钮：智能按钮，根据状态动态显示文本和启用状态
         can_stop = state.can_stop()
@@ -1079,6 +1107,8 @@ class ExplosionExperimentPage(QWidget):
             else:
                 self.btn_stop.setText("完成实验")
                 self.btn_stop.setObjectName("warningButton")
+            if self.camera_flow.context is not None:
+                self.btn_stop.setText("放弃本轮")
         elif state == ExplosionExperimentState.SESSION_CREATED:
             self.btn_stop.setText("完成实验")
             self.btn_stop.setObjectName("warningButton")
@@ -1094,6 +1124,7 @@ class ExplosionExperimentPage(QWidget):
         # 自清洁按钮：已连接且未运行时可用
         self.btn_auto_clean_on.setEnabled(is_connected and not is_running)
         self.btn_auto_clean_off.setEnabled(is_connected and not is_running)
+        self.camera_flow.refresh_controls()
     
     def _control_controller(self, action):
         """控制温控仪表（通过控制器）"""
@@ -1126,24 +1157,14 @@ class ExplosionExperimentPage(QWidget):
             self._control_controller('StoP')
     
     def _init_camera(self):
-        """初始化相机"""
-        try:
-            self.camera_enabled = self.flame_kit.initialize()
-            self.lbl_camera_status.setText("相机状态: " + ("已就绪" if self.camera_enabled else "未找到相机"))
-            self.lbl_camera_status.setStyleSheet("color: #4caf50; font-weight: bold;" if self.camera_enabled else "color: #f44336; font-weight: bold;")
-            
-            self.btn_preview.setEnabled(self.camera_enabled)
-            self.btn_capture.setEnabled(self.camera_enabled)
-            self.btn_analyze.setEnabled(self.camera_enabled)
-            self.btn_calibrate.setEnabled(self.camera_enabled)
-            self.log_message.emit(f"相机初始化状态: {'✓ 相机初始化成功' if self.camera_enabled else '✗ 未找到相机'}")
-        except Exception as e:
-            self.log_message.emit(f"✗ 相机初始化失败: {e}")
-            QMessageBox.critical(self, "错误", f"相机初始化失败:\n{e}")
-            return
+        self.camera_flow.initialize()
 
     def _calibrate_parameters(self):
         """参数标定 - 使用交互式对话框"""
+        if not self.camera_flow.available() or not self.camera_enabled:
+            return
+        self.camera_flow.calibration_active = True
+        self.camera_flow.refresh_controls()
         try:
             from views.dialogs.calibration_dialog import CalibrationDialog
             
@@ -1176,78 +1197,26 @@ class ExplosionExperimentPage(QWidget):
         except Exception as e:
             self.log_message.emit(f"✗ 参数标定失败: {e}")
             QMessageBox.critical(self, "错误", f"参数标定失败:\n{e}")
+        finally:
+            self.camera_flow.calibration_active = False
+            self.camera_flow.refresh_controls()
     
     def _toggle_preview(self):
-        """切换预览"""
-        # TODO: 实现预览功能
-        self.flame_kit.preview(60)
-        self.log_message.emit("✓ 预览成功")
-    
+        self.camera_flow.toggle_preview()
+
     def _manual_capture(self):
-        """手动拍摄"""
-        try:
-            self.log_message.emit("开始手动拍摄...")
-            
-            # 清空临时文件夹（避免旧图像干扰）
-            if os.path.exists(self.temp_dir):
-                for file in os.listdir(self.temp_dir):
-                    file_path = os.path.join(self.temp_dir, file)
-                    try:
-                        if os.path.isfile(file_path):
-                            os.remove(file_path)
-                    except Exception as e:
-                        self.log_message.emit(f"⚠ 清理旧文件失败: {file} - {e}")
-                self.log_message.emit("✓ 临时文件夹已清空")
-            
-            # 确保临时文件夹存在
-            os.makedirs(self.temp_dir, exist_ok=True)
-            
-            # 调用相机拍摄
-            images, count = self.flame_kit.capture_one_second()
-            self.log_message.emit(f"✓ 手动拍摄完成，共计拍摄：{count} 帧")
-            
-            # 保存图像到临时文件夹
-            for image in images:
-                shutil.copy(image, os.path.join(self.temp_dir, os.path.basename(image)))
-            self.log_message.emit(f"✓ 图像保存完成，共计保存：{len(images)} 帧到 {self.temp_dir}")
-            
-        except Exception as e:
-            self.log_message.emit(f"✗ 拍摄失败: {e}")
-    
+        return self.camera_flow.manual_capture()
+
     def _trigger_camera_capture(self):
-        """触发相机拍摄（时序控制中调用）"""
-        if not self.camera_enabled:
-            return
-        
-        try:
-            # 清空临时文件夹（避免旧图像干扰）
-            if os.path.exists(self.temp_dir):
-                for file in os.listdir(self.temp_dir):
-                    file_path = os.path.join(self.temp_dir, file)
-                    try:
-                        if os.path.isfile(file_path):
-                            os.remove(file_path)
-                    except Exception as e:
-                        self.log_message.emit(f"⚠ 清理旧文件失败: {file} - {e}")
-                self.log_message.emit("✓ 临时文件夹已清空")
-            
-            # 确保临时文件夹存在
-            os.makedirs(self.temp_dir, exist_ok=True)
-            
-            # 调用相机高速拍摄
-            images, count = self.flame_kit.capture_one_second()
-            self.log_message.emit(f"✓ 自动拍摄完成，共计拍摄：{count} 帧")
+        self.camera_flow.trigger()
 
-            # 保存图像到临时文件夹
-            for image in images:
-                shutil.copy(image, os.path.join(self.temp_dir, os.path.basename(image)))
-            self.log_message.emit(f"✓ 图像保存完成，共计保存：{len(images)} 帧到 {self.temp_dir}")
-
-        except Exception as e:
-            self.log_message.emit(f"✗ 相机拍摄失败: {e}")
-    
     def _analyze_flame(self):
         """分析火焰 - 打开火焰分析器窗口"""
+        pending = self.camera_flow.analysis_input()
+        if pending is None or self.flame_analyzer_window is not None:
+            self.log_message.emit("✗ 当前没有可分析的有效轮次图像")
+            return
+        context, self.temp_dir = pending
         print(f"临时存放路径: {self.temp_dir}")
         
         try:
@@ -1276,10 +1245,13 @@ class ExplosionExperimentPage(QWidget):
             )
             
             # 连接窗口关闭信号，接收分析结果
-            self.flame_analyzer_window.window_closed.connect(self._on_flame_analysis_complete)
+            window = self.flame_analyzer_window
+            window.window_closed.connect(
+                lambda results: self._accept_flame_analysis(results, context, window))
             
             # 显示窗口
             self.flame_analyzer_window.show()
+            self.camera_flow.refresh_controls()
             self.log_message.emit("✓ 火焰分析窗口已打开")
             
         except Exception as e:
@@ -1287,6 +1259,17 @@ class ExplosionExperimentPage(QWidget):
             import traceback
             self.log_message.emit(f"✗ 错误详情: {traceback.format_exc()}")
             QMessageBox.critical(self, "错误", f"打开火焰分析窗口失败:\n{e}")
+
+    def _accept_flame_analysis(self, results, context, window):
+        if self.flame_analyzer_window is window:
+            self.flame_analyzer_window = None
+        if not self.camera_flow.accepts_analysis(context):
+            self.log_message.emit("已忽略过期或已取消轮次的分析结果")
+            self.camera_flow.refresh_controls()
+            return
+        self._analysis_output_dir = window.output_folder
+        self._on_flame_analysis_complete(results)
+        self.camera_flow.refresh_controls()
     
     def _on_flame_analysis_complete(self, results: dict):
         """
@@ -1296,14 +1279,9 @@ class ExplosionExperimentPage(QWidget):
             results: 分析结果字典
         """
         try:
-            # 确保火焰分析窗口已关闭，避免窗口管理冲突
-            if hasattr(self, 'flame_analyzer_window') and self.flame_analyzer_window:
-                try:
-                    if self.flame_analyzer_window.isVisible():
-                        self.flame_analyzer_window.close()
-                    self.flame_analyzer_window = None
-                except Exception:
-                    pass
+            # The sender is already executing closeEvent. Closing it here can
+            # re-enter this callback and save/advance the same round twice.
+            self.flame_analyzer_window = None
             
             # 使用服务层处理分析结果
             process_result = self.flame_handler.process_analysis_results(
@@ -1328,6 +1306,9 @@ class ExplosionExperimentPage(QWidget):
             
             # 添加记录到内存
             self.round_records.append(process_result['record'])
+            self.camera_flow.consume_round()
+            self.is_running = False
+            self.sequence_running = False
             
             # 更新实验记录卡片
             self._update_records_panel()
@@ -1354,7 +1335,7 @@ class ExplosionExperimentPage(QWidget):
                 if reply == QMessageBox.No:
                     self._show_experiment_conclusion(meets_standard=False)
                 else:
-                    self.log_message.emit("准备开始第二阶段实验（第6-10轮）")
+                    self.log_message.emit(f"准备开始第二阶段实验（第{self.phase_rounds + 1}-{self.max_rounds}轮）")
                     self.controller._set_state(ExplosionExperimentState.SESSION_CREATED)
                     self.is_running = False
                     self.sequence_running = False
@@ -1380,12 +1361,11 @@ class ExplosionExperimentPage(QWidget):
                 )
                 
                 if reply == QMessageBox.No:
-                    self.log_message.emit("用户选择停止实验")
-                else:
-                    self.controller._set_state(ExplosionExperimentState.SESSION_CREATED)
-                    self.is_running = False
-                    self.sequence_running = False
-                    self._update_button_states()
+                    self.log_message.emit("本轮已保存，可稍后继续或完成会话")
+                self.controller._set_state(ExplosionExperimentState.SESSION_CREATED)
+                self.is_running = False
+                self.sequence_running = False
+                self._update_button_states()
             
             # 清理临时文件夹
             self._cleanup_temp_folders()
@@ -1394,43 +1374,27 @@ class ExplosionExperimentPage(QWidget):
             self.log_message.emit(f"✗ 处理分析结果失败: {e}")
             import traceback
             self.log_message.emit(f"✗ 错误详情: {traceback.format_exc()}")
-            # 即使出错也要清理临时文件夹
-            try:
-                self._cleanup_temp_folders()
-            except Exception:
-                pass
+            # Preserve raw images and the active round for retry on any error.
     
     def _cleanup_temp_folders(self):
-        """清理临时文件夹：temp_captures 和 flame_results"""
-        try:
-            # 清理 temp_captures 文件夹
-            if os.path.exists(self.temp_dir):
-                for file in os.listdir(self.temp_dir):
-                    file_path = os.path.join(self.temp_dir, file)
-                    try:
-                        if os.path.isfile(file_path):
-                            os.remove(file_path)
-                    except Exception as e:
-                        self.log_message.emit(f"⚠ 删除文件失败: {file} - {e}")
-                self.log_message.emit(f"✓ 已清空临时文件夹: {self.temp_dir}")
-            
-            # 清理 flame_results 文件夹
-            if os.path.exists(self.result_dir):
-                for item in os.listdir(self.result_dir):
-                    item_path = os.path.join(self.result_dir, item)
-                    try:
-                        if os.path.isfile(item_path):
-                            os.remove(item_path)
-                        elif os.path.isdir(item_path):
-                            # 删除子文件夹（如 analysis_TIMESTAMP）
-                            shutil.rmtree(item_path)
-                    except Exception as e:
-                        self.log_message.emit(f"⚠ 删除项目失败: {item} - {e}")
-                self.log_message.emit(f"✓ 已清空分析结果文件夹: {self.result_dir}")
-            
-        except Exception as e:
-            self.log_message.emit(f"✗ 清理临时文件夹失败: {e}")
-    
+        """Remove only this committed attempt, preserving failed/other attempts."""
+        from pathlib import Path
+        targets = [(self.temp_dir, self.camera_flow.root)]
+        output = getattr(self, '_analysis_output_dir', None)
+        if output:
+            targets.append((output, self.flame_config.flame_output_folder))
+        for folder, root in targets:
+            try:
+                target, base = Path(folder).resolve(), Path(root).resolve()
+                relative = target.relative_to(base)
+                if not relative.parts:
+                    continue  # Never clear an entire shared root.
+                if target.is_dir():
+                    shutil.rmtree(target)
+            except Exception as error:
+                self.log_message.emit(f"保留未清理的本轮临时文件：{error}")
+        self._analysis_output_dir = None
+
     def _evaluate_explosion_level(self, avg_flame_length: float) -> tuple:
         """
         根据平均火焰长度评估爆炸性强弱（兼容方法，调用服务层）
@@ -1473,7 +1437,7 @@ class ExplosionExperimentPage(QWidget):
         显示实验结论对话框（使用服务层）
         
         Args:
-            meets_standard: 是否满足检测标准。None表示自动判断，True表示满足，False表示不满足
+            meets_standard: 兼容参数，表示是否完成配置流程，不代表标准认证
         """
         try:
             if not self.round_records:
@@ -1505,17 +1469,18 @@ class ExplosionExperimentPage(QWidget):
                 
                 # 保存实验结果到数据库
                 if self.current_session_id:
-                    # 更新状态
-                    self.controller._set_state(ExplosionExperimentState.COMPLETED)
-                    db_status = self.controller.current_state.to_db_status()
                     finalize_success = self.controller.finalize_experiment(
                         session_id=self.current_session_id,
-                        status=db_status if db_status else 'completed'
+                        status='completed'
                     )
                     if finalize_success:
                         self.log_message.emit("✓ 实验结果已保存到数据库")
                     else:
                         self.log_message.emit("✗ 保存实验结果到数据库失败")
+                        QMessageBox.critical(self, "保存失败", "会话和轮次已保留，请检查后重试完成实验。")
+                        return
+                else:
+                    return
                 
                 # 清理会话状态
                 self.current_session_id = None
@@ -1523,9 +1488,6 @@ class ExplosionExperimentPage(QWidget):
                 self.current_round_number = 0
                 self.is_running = False
                 self.sequence_running = False
-                
-                # 重置状态为CONNECTED，以便创建新实验
-                self.controller._set_state(ExplosionExperimentState.CONNECTED)
                 
                 # 清空内存记录
                 self.round_records.clear()
@@ -1699,12 +1661,9 @@ class ExplosionExperimentPage(QWidget):
             )
             
             if reply == QMessageBox.Yes:
-                # 更新状态
-                self.controller._set_state(ExplosionExperimentState.COMPLETED)
-                db_status = self.controller.current_state.to_db_status()
                 success = self.controller.finalize_experiment(
                     self.current_session_id,
-                    status=db_status if db_status else 'completed'
+                    status='completed'
                 )
                 if success:
                     self.log_message.emit("=" * 50)
@@ -1785,7 +1744,10 @@ class ExplosionExperimentPage(QWidget):
             callback(reply == QMessageBox.Yes)
     
     def prepare_shutdown(self):
+        self.camera_flow.worker.cancel()
         if not self.controller.prepare_shutdown():
+            return False
+        if not self.camera_flow.prepare_shutdown():
             return False
         self.is_running = False
         self.sequence_running = False
@@ -1801,7 +1763,9 @@ class ExplosionExperimentPage(QWidget):
             return False
         try:
             if self.flame_kit:
-                self.flame_kit.release()
+                if self.flame_kit.release() is False:
+                    self.log_message.emit("释放相机资源未确认，请重试退出")
+                    return False
             if getattr(self, 'flame_analyzer_window', None):
                 self.flame_analyzer_window.close()
             return True
