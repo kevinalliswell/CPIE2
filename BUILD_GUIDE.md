@@ -24,10 +24,10 @@ macOS 仅用于开发与软件验证：可用 `python3.9 -m venv .venv`，之后
 `requirements.txt` 使用以下不可变来源：
 
 ```text
-flamekit @ git+https://github.com/kevinalliswell/flame-package.git@52f2614ac0eaa60e9a8b1233ad664b559ea1777f
+flamekit @ git+https://github.com/kevinalliswell/flame-package.git@f0c3e65c0c68b28e41b3e195764a8f0d0a1ab4bd
 ```
 
-本地 pip 调用 Git 拉取此源码，需要当前 Git 身份具备该私有仓库读取权限。不要在依赖文件中写入令牌或私钥，也不要改回本地 `flame_package/`。上游 `v1.1.3` 引用所指源码的安装元数据仍为 `1.1.2`，因此必须用完整提交 SHA 核对来源，不能只比较包版本字符串。
+本地 pip 调用 Git 拉取此源码，需要当前 Git 身份具备该私有仓库读取权限。不要在依赖文件中写入令牌或私钥，也不要改回本地 `flame_package/`。该提交是上游 Draft PR #1 的分支头，不是 release tag，其安装元数据仍为 `1.1.2`，因此必须用完整提交 SHA 核对来源，不能只比较包版本字符串。
 
 CI 使用项目专用的只读 Deploy Key：公钥授权到 `kevinalliswell/flame-package`，私钥存为 CPIE2 Actions Secret `FLAMEKIT_DEPLOY_KEY`。**本仓库已完成配置并验证固定提交可读取。** 工作流先验证权限，再按固定 SHA 检出私有依赖；临时映射只作用于安装子进程，不修改全局 Git 配置。发布流程仅向验证工作流显式传递这一项 Secret。缺少授权会明确失败，不跳过依赖或测试。
 

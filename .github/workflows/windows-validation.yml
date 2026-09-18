@@ -30,7 +30,7 @@ jobs:
       PYTHONIOENCODING: utf-8
       QT_QPA_PLATFORM: offscreen
       MPLBACKEND: Agg
-      FLAMEKIT_COMMIT: 52f2614ac0eaa60e9a8b1233ad664b559ea1777f
+      FLAMEKIT_COMMIT: f0c3e65c0c68b28e41b3e195764a8f0d0a1ab4bd
     steps:
       - uses: actions/checkout@v4
         with:
@@ -94,8 +94,10 @@ jobs:
           python -m compileall -q src scripts build_release.py modbus_multi_device_package/modbus_multi_device
       - name: Run all automated tests
         run: python -m pytest --junitxml=artifacts/pytest-windows.xml
-      - name: Verify pinned FlameKit capture integrity on Windows
-        run: python -m pytest .ci-dependencies/flamekit/tests/test_capture_integrity.py --junitxml=artifacts/flamekit-capture-windows.xml
+      - name: Verify pinned FlameKit regressions on Windows
+        # 固定提交现在有三个测试文件（采集完整性、取帧时序、分析与配置），
+        # 只跑 test_capture_integrity.py 会漏掉后两个。
+        run: python -m pytest .ci-dependencies/flamekit/tests --junitxml=artifacts/flamekit-capture-windows.xml
       - name: Source startup, recovery, export and shutdown smoke
         run: python scripts/smoke_check.py --source --output artifacts/source-smoke.json
       - name: Build release candidate
@@ -117,7 +119,7 @@ jobs:
           assert package.with_suffix('.zip.sha256').read_text().split()[0] == digest
           assert info['source_commit'] == expected
           assert info['source_dirty'] is False
-          assert info['flamekit_commit'] == '52f2614ac0eaa60e9a8b1233ad664b559ea1777f'
+          assert info['flamekit_commit'] == 'f0c3e65c0c68b28e41b3e195764a8f0d0a1ab4bd'
           assert info['dependencies']['pymodbus'] == '3.8.6'
       - name: Upload test and smoke evidence
         if: always()

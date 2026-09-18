@@ -13,5 +13,6 @@ python-docx==1.2.0
 reportlab==4.4.10
 lxml==6.0.4
 openpyxl==3.1.5
-# Immutable upstream revision (release v1.1.3).
-flamekit @ git+https://github.com/kevinalliswell/flame-package.git@52f2614ac0eaa60e9a8b1233ad664b559ea1777f
+# Immutable upstream revision: flame-package Draft PR #1 head (codex/capture-integrity).
+# Not a release tag; installed metadata still reports 1.1.2, so verify by full commit SHA.
+flamekit @ git+https://github.com/kevinalliswell/flame-package.git@f0c3e65c0c68b28e41b3e195764a8f0d0a1ab4bd

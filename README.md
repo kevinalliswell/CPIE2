@@ -27,7 +27,7 @@ py -3.9 -m venv .venv
 
 请检出需要验证的明确提交或候选分支后安装依赖；默认分支不一定已包含本轮候选变更。上述命令无需激活虚拟环境。只运行应用安装 `requirements.txt`；需要测试或打包时，改装包含运行依赖的 `requirements-dev.txt`，并同样安装本地 Modbus 包。
 
-FlameKit 已移出本仓库，通过 `requirements.txt` 固定到外部源码提交 `52f2614ac0eaa60e9a8b1233ad664b559ea1777f`。不要再安装本地 `flame_package/`。访问失败时先配置该私有仓库的 Git 读取权限；不能通过删除依赖继续安装。本仓库 CI 已配置专用只读 Deploy Key，详见构建指南。
+FlameKit 已移出本仓库，通过 `requirements.txt` 固定到外部源码提交 `f0c3e65c0c68b28e41b3e195764a8f0d0a1ab4bd`。不要再安装本地 `flame_package/`。访问失败时先配置该私有仓库的 Git 读取权限；不能通过删除依赖继续安装。本仓库 CI 已配置专用只读 Deploy Key，详见构建指南。
 
 首次启动先检查页面、配置和历史功能，再按现场规程连接设备。真实实验还需要相应串口设备、驱动及相机 SDK；它们不由 pip 自动完成现场配置。
 

@@ -20,7 +20,7 @@
 
 ### 依赖和交付
 
-- FlameKit 改用外部固定提交 `52f2614ac0eaa60e9a8b1233ad664b559ea1777f`，删除内置副本；运行依赖与开发依赖分别固定，补齐 Excel 所需 openpyxl。
+- FlameKit 改用外部固定提交 `f0c3e65c0c68b28e41b3e195764a8f0d0a1ab4bd`，删除内置副本；运行依赖与开发依赖分别固定，补齐 Excel 所需 openpyxl。
 - 增加临时数据库、真实 Qt 窗口、硬件协议和并发回归，以及源码/冻结程序启动、恢复、导出、关闭 smoke。
 - Windows 安装改为普通用户 `%LOCALAPPDATA%\Programs\CPIE`，升级保留已有数据、配置、日志和导出。
 - 候选包记录源码与依赖来源、Python 版本及 SHA256；Release 在版本匹配和 Windows 验证通过后发布同次验证产物。
