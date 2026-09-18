@@ -18,6 +18,8 @@
 
 本机为 macOS，已通过源码无设备检查（真实窗口、两类数据库、历史 CSV/Excel/Word 导出、副屏和关闭重开）。本机完整 PyInstaller 构建曾因磁盘空间不足失败，构建脚本返回非零且未生成成功发布；已清理本次失败的临时构建目录。Windows 冻结包验证以 PR 的 Actions 结果为准。
 
+2026-09-18 根据离线电脑退出被拦截的反馈，复现了“串口适配器能打开，但两类实验的设备均不响应，且没有启动实验”时仍强制等待硬件 STOP 的问题。修复依据完整探测和整个连接管理器生命周期的响应/控制记录判断，保留部分响应、超时写入和后台设备线程的退出保护；源码及冻结程序 smoke 新增真实主窗口离线连接后关闭场景。9 月 14 日 `8a67534` 候选包仍包含此问题，应使用包含本修复且通过 Windows 检查的新候选包。复现范围及验收要求见 [离线退出审查](OFFLINE_EXIT_AUDIT.md)。
+
 FlameKit 仓库为私有。2026-09-13 经用户授权，已创建专用只读 Deploy Key（ID `163152948`），私钥保存为 CPIE2 Actions Secret `FLAMEKIT_DEPLOY_KEY`。已用该密钥读取固定提交 `114f457c46689180a33fa1122809e926ec46de12`，并确认不能读取 CPIE2 私有仓库；GitHub 返回 `read_only=true`，本机临时私钥已清理。发布流程仅向验证任务传递这一项 Secret。缺少授权时明确失败，不跳过依赖或验证。
 
 Windows 首次 [Actions 运行](https://github.com/kevinalliswell/CPIE2/actions/runs/34751490128) 在执行任何步骤前被账号 Actions 预算限制阻止。2026-09-13 用户恢复预算后，Windows runner 已正常启动，并成功使用专用密钥读取私有依赖。预检还确认 FlameKit 的动态 `core` 导入需要显式纳入 PyInstaller，现已补齐。最终自动化结果以当前 PR 的 Windows 检查及其证据为准，不能仅凭环境启动就认定验证通过。

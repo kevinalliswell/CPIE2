@@ -8,7 +8,7 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 from pymodbus.client import ModbusSerialClient
-from pymodbus.exceptions import ModbusException
+from pymodbus.exceptions import ModbusException, ModbusIOException
 import time
 import threading
 
@@ -36,11 +36,20 @@ class BaseDevice(ABC):
         self.last_data = None
         self.poll_interval = float(kwargs.get('poll_interval', 1.0))
         self.io_lock = kwargs.get('io_lock') or threading.RLock()
+        self._activity_event = kwargs.get('activity_event')
 
     def _request(self, method, *args, **kwargs):
         # All devices on the serial bus share this lock.
         with self.io_lock:
-            return getattr(self.client, method)(*args, **kwargs)
+            if self._activity_event is not None and method.startswith('write_'):
+                # A timed-out write may still have changed the physical output.
+                self._activity_event.set()
+            result = getattr(self.client, method)(*args, **kwargs)
+            if (self._activity_event is not None and result is not None
+                    and not isinstance(result, ModbusIOException)):
+                # A partial read or protocol exception still proves device contact.
+                self._activity_event.set()
+            return result
     
     @abstractmethod
     def read_data(self) -> Optional[Dict[str, Any]]:

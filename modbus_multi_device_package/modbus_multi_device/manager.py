@@ -58,6 +58,10 @@ class ModbusDeviceManager:
         # only some required devices answer the connection verification.
         self.ready = False
         self.started = False
+        # Never clear contact/control evidence on cache invalidation or reconnect.
+        self._device_activity = threading.Event()
+        self._devices_initialized = False
+        self._probe_complete = False
         
         # 数据存储
         self.latest_data = {}
@@ -158,9 +162,12 @@ class ModbusDeviceManager:
     
     def _init_devices(self):
         """初始化所有设备"""
+        self._devices_initialized = False
+        self._probe_complete = False
         devices_config = self.config_loader.get_devices_config()
         self.devices.clear()
         self.device_list.clear()
+        initialization_complete = True
         
         for device_config in devices_config:
             try:
@@ -172,6 +179,7 @@ class ModbusDeviceManager:
                 device_class = DEVICE_TYPES.get(device_type)
                 if not device_class:
                     self.logger.error(f"未知的设备类型: {device_type}")
+                    initialization_complete = False
                     continue
                 
                 # 创建设备实例
@@ -180,6 +188,7 @@ class ModbusDeviceManager:
                     address=device_address,
                     client=self.client,
                     io_lock=self._io_lock,
+                    activity_event=self._device_activity,
                     **device_config.get('parameters', {}),
                     enabled=device_config.get('enabled', True),
                     poll_interval=float(device_config.get('poll_interval', 1.0))
@@ -191,7 +200,9 @@ class ModbusDeviceManager:
                 self.logger.info(f"设备已初始化: {device_name} ({device_type})")
                 
             except Exception as e:
+                initialization_complete = False
                 self.logger.error(f"初始化设备失败: {e}")
+        self._devices_initialized = initialization_complete
     
     def _verify_devices(self) -> bool:
         """
@@ -200,6 +211,7 @@ class ModbusDeviceManager:
         Returns:
             至少配置一个启用设备，且所有启用设备均响应时返回 True。
         """
+        self._probe_complete = False
         if not self.device_list:
             self.logger.warning("没有配置任何设备")
             return False
@@ -207,6 +219,7 @@ class ModbusDeviceManager:
         # 尝试读取所有启用的设备
         success_count = 0
         enabled_count = 0
+        probe_complete = True
         
         for device in self.device_list:
             if not device.enabled:
@@ -226,7 +239,12 @@ class ModbusDeviceManager:
                     self.logger.warning(f"设备无响应: {device.name}")
                     
             except Exception as e:
+                probe_complete = False
                 self.logger.warning(f"设备验证失败 [{device.name}]: {e}")
+
+        self._probe_complete = bool(
+            self._devices_initialized and probe_complete and enabled_count > 0
+        )
         
         # Every configured, enabled device is required by the experiment.
         if enabled_count > 0 and success_count == enabled_count:
@@ -235,6 +253,13 @@ class ModbusDeviceManager:
         else:
             self.logger.error(f"必需设备未全部在线 ({success_count}/{enabled_count})")
             return False
+
+    def can_close_without_device_shutdown(self) -> bool:
+        """Allow only a completed, untouched probe that found no device responses."""
+        return bool(
+            self._probe_complete and not self._device_activity.is_set()
+            and not self.started and self.poller is None and self.executor is None
+        )
     
     def disconnect(self):
         """断开连接"""
@@ -328,6 +353,7 @@ class ModbusDeviceManager:
     
     def _on_data_received(self, data: Dict[str, Any]):
         """数据接收回调"""
+        self._device_activity.set()
         device_name = data.get('device')
         
         with self._data_lock:
@@ -383,6 +409,7 @@ class ModbusDeviceManager:
             return False
         
         # 根据优先级提交控制
+        self._device_activity.set()
         if priority == 'high':
             return self.executor.submit_high_priority(device_name, control_data)
         elif priority == 'low':
@@ -394,18 +421,21 @@ class ModbusDeviceManager:
         """Return the actual write result, never just queue admission."""
         if not self.started or not self.executor:
             return False
+        self._device_activity.set()
         return self.executor.submit_and_wait(device_name, control_data, timeout=timeout)
 
     def shutdown_relays(self, device_name, timeout=5.0):
         """Block ordinary commands and confirm all four coils OFF by fresh readback."""
         if not self.started or not self.executor:
             return False
+        self._device_activity.set()
         return self.executor.shutdown_relays(device_name, timeout=timeout)
 
     def shutdown_control(self, device_name, control_data, timeout=5.0):
         """Cancel pending commands and await a final stop command, blocking later writes."""
         if not self.started or not self.executor:
             return False
+        self._device_activity.set()
         return self.executor.shutdown_control(device_name, control_data, timeout=timeout)
 
     def resume_controls(self, device_name):

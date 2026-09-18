@@ -509,6 +509,10 @@ class ExplosionController(QObject):
             try:
                 if self.manager is None:
                     return True
+                if (self._closing and getattr(self.manager, 'can_close_without_device_shutdown',
+                                               lambda: False)() is True):
+                    self.log_message.emit("未收到任何设备响应，且未发出控制指令；退出时无需硬件关断确认")
+                    return True
                 if not self.manager.connected:
                     return not self.manager.started
                 if not self.manager.started and not self.manager.start():
@@ -815,7 +819,9 @@ class ExplosionController(QObject):
         if not self.stop_experiment():
             return False
         # Stop the separate temperature program only at application shutdown.
-        if self.manager and '爆炸性-温控仪表' in self.manager.devices:
+        uncontacted = (self.manager is not None
+                       and getattr(self.manager, 'can_close_without_device_shutdown', lambda: False)() is True)
+        if self.manager and not uncontacted and '爆炸性-温控仪表' in self.manager.devices:
             if not self.manager.shutdown_control(
                     '爆炸性-温控仪表', {'set_run_status': {'status': 'StoP'}},
                     timeout=self._control_timeout):

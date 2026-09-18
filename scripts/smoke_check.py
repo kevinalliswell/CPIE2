@@ -25,6 +25,93 @@ def _write_report(path, report):
     path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
 
+def _offline_connection_shutdown(app, window_class, report):
+    """Exercise failed discovery and real window close with only fake transports."""
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtWidgets import QMessageBox
+    from pymodbus.exceptions import ModbusIOException
+    import modbus_multi_device.manager as manager_module
+
+    transports = []
+
+    class OfflineTransport:
+        def __init__(self, **kwargs):
+            self.closed = False
+            self.reads = 0
+            self.writes = 0
+            transports.append(self)
+
+        def connect(self):
+            return True  # Only the adapter opens; no field device ever responds.
+
+        def close(self):
+            self.closed = True
+
+        def no_response(self, *args, **kwargs):
+            self.reads += 1
+            raise ModbusIOException('Synthetic offline device: no response')
+
+        read_holding_registers = no_response
+        read_input_registers = no_response
+        read_coils = no_response
+
+        def reject_write(self, *args, **kwargs):
+            self.writes += 1
+            raise AssertionError('Untouched offline discovery must not send control commands')
+
+        write_coil = reject_write
+        write_register = reject_write
+        write_registers = reject_write
+
+    original_client = manager_module.ModbusSerialClient
+    original_critical = QMessageBox.critical
+    offline_window = None
+    controllers = []
+    connection_dialogs = []
+    try:
+        manager_module.ModbusSerialClient = OfflineTransport
+        offline_window = window_class()
+        pages = [offline_window.stacked_widget.widget(index) for index in (1, 2)]
+        controllers = [page.controller for page in pages]
+
+        def expected_connection_failure(parent, title, message, *args, **kwargs):
+            if parent in pages and title == '连接错误':
+                connection_dialogs.append(message)
+                return QMessageBox.Ok
+            return original_critical(parent, title, message, *args, **kwargs)
+
+        QMessageBox.critical = staticmethod(expected_connection_failure)
+        offline_window.show()
+        for page in pages:
+            page._on_connect()
+        for controller in controllers:
+            assert controller._connect_thread is not None
+            controller._connect_thread.join(5.0)
+            assert not controller._connect_thread.is_alive(), 'Offline discovery did not finish'
+        app.processEvents()
+        assert len(connection_dialogs) == 2, connection_dialogs
+        assert all(controller.current_session_id is None and controller.current_state.name == 'IDLE'
+                   for controller in controllers)
+        assert all(controller.manager.connected and not controller.manager.ready
+                   and not controller.manager.started for controller in controllers)
+        assert len(transports) == 2 and all(transport.reads > 0 for transport in transports)
+        assert offline_window.close(), 'Application refused exit after entirely offline discovery'
+        assert all(controller.db is None and controller.manager is None for controller in controllers)
+        assert all(transport.closed and transport.writes == 0 for transport in transports)
+        report['offline_connection_shutdown'] = True
+    finally:
+        QMessageBox.critical = staticmethod(original_critical)
+        manager_module.ModbusSerialClient = original_client
+        # On a regression, stop only workers using these fake transports before
+        # deleting the test window. This never reaches a real serial device.
+        for controller in controllers:
+            if controller.manager is not None and controller.manager.client in transports:
+                controller.manager.disconnect()
+        if offline_window is not None:
+            offline_window.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+
 def application_smoke(output):
     """Called only by the executable's explicit --smoke-test entry point."""
     os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
@@ -66,7 +153,7 @@ def application_smoke(output):
         report['flamekit_defaults'] = True
 
         from PySide6.QtWidgets import QApplication, QMessageBox
-        from PySide6.QtCore import QTimer
+        from PySide6.QtCore import QTimer, QCoreApplication, QEvent
         from src.views.main_window import MainWindow
         from src.utils.single_instance import SingleInstance
         from src.utils.tools import Tools
@@ -117,6 +204,7 @@ def application_smoke(output):
         result_code = [1]
 
         def verify_and_close():
+            nonlocal window
             try:
                 pages = [type(window.stacked_widget.widget(i)).__name__ for i in range(window.stacked_widget.count())]
                 assert len(pages) == 7, pages
@@ -183,6 +271,10 @@ def application_smoke(output):
                     assert any(row['id'] == expected_id and row['status'] == 'error' for row in sessions)
                     assert reopened.recover_interrupted_sessions() == 0
                     reopened.close()
+                window.deleteLater()
+                window = None
+                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+                _offline_connection_shutdown(app, MainWindow, report)
                 assert not report['hardware_access'], report['hardware_access']
                 assert not report.get('unexpected_dialogs'), report.get('unexpected_dialogs')
                 report['database_reopen'] = True

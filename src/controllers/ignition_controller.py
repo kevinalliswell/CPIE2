@@ -719,11 +719,15 @@ class IgnitionController(QObject):
             if self.is_running:
                 self.stop_experiment()
             self.data_monitor_timer.stop()
-            if self.manager is not None and self.manager.connected and not self.manager.started:
+            uncontacted = (self.manager is not None
+                           and getattr(self.manager, 'can_close_without_device_shutdown', lambda: False)() is True)
+            if uncontacted:
+                self.log_message.emit("未收到任何设备响应，且未发出控制指令；退出时无需硬件关断确认")
+            if self.manager is not None and not uncontacted and self.manager.connected and not self.manager.started:
                 if self.manager.start() is False:
                     self.log_message.emit("✗ 无法启动设备停止流程，请重试退出")
                     return False
-            if self.manager is not None and self.manager.started:
+            if self.manager is not None and not uncontacted and self.manager.started:
                 if not self.manager.shutdown_control(
                     device_name='着火点-温控仪表',
                     control_data={'set_run_status': {'status': 'StoP'}},
