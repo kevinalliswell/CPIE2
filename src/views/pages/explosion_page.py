@@ -163,7 +163,17 @@ class ExplosionExperimentPage(QWidget):
             self._on_spray_valve_opened,
             Qt.QueuedConnection
         )
-    
+        # 时序工作线程结束时会在后台切换状态（如停止/异常中止后回到 SESSION_CREATED），
+        # 需要据此刷新按钮，否则按钮会停留在旧状态
+        self.controller.state_changed.connect(
+            self._on_controller_state_changed,
+            Qt.QueuedConnection
+        )
+
+    def _on_controller_state_changed(self, _state: str):
+        """控制器状态变化时统一刷新按钮（状态文本由控制器的 status_updated 信号负责）"""
+        self._update_button_states()
+
     def _init_ui(self):
         """初始化界面（使用组件）"""
         main_layout = QHBoxLayout(self)
@@ -790,6 +800,10 @@ class ExplosionExperimentPage(QWidget):
             else:
                 self.log_message.emit("⚠ 用户选择在相机未初始化的情况下继续实验")
         
+        # 轮次号以已记录的轮次为准：被停止/中止、或分析未产生结果的轮次不占用轮次号，
+        # 否则控制器计数器会与实际记录漂移，导致阶段判定和数据库轮次校验出错
+        self.controller.sync_round_number(len(self.round_records))
+
         # 显示实验信息并确认启动
         reply = QMessageBox.question(
             self,
@@ -889,32 +903,6 @@ class ExplosionExperimentPage(QWidget):
         self.controller.control_relay('vacuum_cleaner', False)
         self.log_message.emit("✓ 自清洁已关闭")
     
-    def _verify_relays_off(self, step_config):
-        """验证继电器全部关闭"""
-        retry_count = step_config.get('retry_count', 3)
-        retry_delay = step_config.get('retry_delay', 0.5)
-        
-        for attempt in range(retry_count):
-            time.sleep(0.5)
-            
-            relay_data = self.manager.get_latest_data('爆炸性-继电器')
-            
-            if relay_data:
-                relays = relay_data.get('relays', {})
-                all_off = all(not state for state in relays.values())
-                
-                if all_off:
-                    self.log_message.emit("  ✓ 所有继电器已关闭")
-                    return
-                else:
-                    on_relays = [name for name, state in relays.items() if state]
-                    self.log_message.emit(f"  ⚠ 部分继电器未关闭: {on_relays}")
-                    
-                    if attempt < retry_count - 1:
-                        time.sleep(retry_delay)
-        
-        self.log_message.emit("  ✗ 验证失败")
-    
     def _on_stop(self):
         """停止/完成按钮点击（智能判断：运行中则停止，已停止则完成）"""
         state = self.controller.current_state
@@ -994,10 +982,16 @@ class ExplosionExperimentPage(QWidget):
         if reply == QMessageBox.Yes:
             # 6. 更新状态并调用finalize_experiment
             self.controller._set_state(ExplosionExperimentState.COMPLETED)
-            db_status = self.controller.current_state.to_db_status()
+            if self.controller.current_state != ExplosionExperimentState.COMPLETED:
+                # 状态转换被拒绝时不能把会话以 running 状态写入数据库
+                self.log_message.emit(
+                    f"✗ 当前状态({self.controller.current_state.description()})无法完成实验"
+                )
+                QMessageBox.warning(self, "提示", "当前状态无法完成实验，请先停止实验")
+                return
             success = self.controller.finalize_experiment(
                 self.current_session_id,
-                status=db_status if db_status else 'completed'
+                status=ExplosionExperimentState.COMPLETED.to_db_status()
             )
 
             if success:
@@ -1008,11 +1002,12 @@ class ExplosionExperimentPage(QWidget):
                 self.log_message.emit(f"  爆炸性等级: {explosion_level}")
                 self.log_message.emit("=" * 50)
                 
-                # 7. 清理会话状态
+                # 7. 清理会话状态（页面与控制器同步清空，避免旧会话被再次启动）
                 self.current_session_id = None
                 self.current_exp_config = None
                 self.current_round_number = 0
                 self.round_records.clear()
+                self.controller.reset_session()
                 self._update_records_panel()
                 
                 # 8. 保持COMPLETED状态，不重置为CONNECTED

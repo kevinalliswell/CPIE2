@@ -247,5 +247,7 @@ class FlameKit:
 
 	def release(self) -> None:
 		self.camera.release()
+		# 释放后必须复位标志，否则再次 initialize() 会直接返回 True 而不重新打开相机
+		self._initialized = False
 
 

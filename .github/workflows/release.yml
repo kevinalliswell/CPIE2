@@ -26,18 +26,31 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          # pymodbus>=3.10 (required for the device_id= keyword used by modbus_multi_device)
+          # only supports Python 3.10+; building on 3.9 silently resolves pymodbus 3.8.x
+          # whose client API has no device_id argument and every Modbus call fails at runtime.
+          python-version: '3.11'
 
       - name: Derive release version
         id: version
         shell: bash
         run: |
-          VERSION_TAG="${GITHUB_REF_NAME}"
-          VERSION="${VERSION_TAG#v}"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION_TAG="${GITHUB_REF_NAME}"
+            VERSION="${VERSION_TAG#v}"
+            IS_RELEASE=true
+          else
+            # workflow_dispatch on a branch: build only, keep the version from software.info
+            VERSION="$(python -c "import json; print(json.load(open('configs/software.info', encoding='utf-8'))['version'])")"
+            VERSION_TAG="v${VERSION}"
+            IS_RELEASE=false
+          fi
           echo "version_tag=${VERSION_TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "is_release=${IS_RELEASE}" >> "$GITHUB_OUTPUT"
 
       - name: Sync software version metadata
+        if: steps.version.outputs.is_release == 'true'
         shell: python
         run: |
           import json
@@ -69,7 +82,18 @@ jobs:
           test -n "$(ls -A release/*.zip 2>/dev/null)"
           test -n "$(ls -A release/*_info.json 2>/dev/null)"
 
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: CPIE-${{ steps.version.outputs.version }}-windows
+          path: |
+            release/*.zip
+            release/*_info.json
+
       - name: Create GitHub Release
+        # Only publish a release for v* tags; a manual run on a branch must not
+        # create a release/tag named after the branch (e.g. "main").
+        if: steps.version.outputs.is_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.version_tag }}

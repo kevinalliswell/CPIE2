@@ -53,8 +53,10 @@ class FlameImageProcessor:
     def _setup_logger(self) -> logging.Logger:
         """设置日志"""
         logger = logging.getLogger('FlameImageProcessor')
-        
-        if self.config.logging_enabled:
+
+        # 该日志器为进程内共享，每轮实验都会新建处理器实例，
+        # 只在第一次安装处理器，避免文件句柄累积和日志重复输出
+        if self.config.logging_enabled and not logger.handlers:
             logger.setLevel(getattr(logging, self.config.log_level))
             
             # 确保日志目录存在

@@ -3,7 +3,7 @@
 <div align="center">
 
 ![Version](https://img.shields.io/badge/version-1.1.0-blue)
-![Python](https://img.shields.io/badge/python-3.9+-green)
+![Python](https://img.shields.io/badge/python-3.10+-green)
 ![License](https://img.shields.io/badge/license-MIT-orange)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 
@@ -82,7 +82,7 @@ CPIE 2.0 是一套专业的煤粉可燃性实验系统，用于测试和分析�
 
 ### 软件要求
 - **操作系统**: Windows 10/11, macOS 10.15+, Linux (Ubuntu 20.04+)
-- **Python 版本**: 3.9 或更高
+- **Python 版本**: 3.10 或更高（推荐 3.11；Modbus 通信依赖的 pymodbus 3.10+ 不支持 Python 3.9）
 - **其他依赖**: 见 `requirements.txt`
 
 ---

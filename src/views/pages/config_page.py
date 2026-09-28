@@ -736,6 +736,19 @@ class ConfigPage(QWidget):
         
         return scroll
     
+    @classmethod
+    def _update_dict_in_place(cls, target: dict, source: dict):
+        """用 source 的内容递归更新 target，但保留 target 及其嵌套字典的对象身份"""
+        for key in list(target.keys()):
+            if key not in source:
+                del target[key]
+        for key, value in source.items():
+            current = target.get(key)
+            if isinstance(current, dict) and isinstance(value, dict):
+                cls._update_dict_in_place(current, value)
+            else:
+                target[key] = value
+
     def _on_reset(self):
         """重置为默认值"""
         reply = QMessageBox.question(
@@ -750,7 +763,11 @@ class ConfigPage(QWidget):
             try:
                 # 重新加载实验配置文件
                 with open(self.config_path, 'r', encoding='utf-8') as f:
-                    self.config = yaml.safe_load(f)
+                    fresh_config = yaml.safe_load(f) or {}
+                # 原地（递归）更新：实验页面/控制器持有的是 explosion_experiment、
+                # ignition_experiment、ui 等子字典的引用，若替换这些对象，
+                # 之后的"应用配置"会改到一个无人读取的字典
+                self._update_dict_in_place(self.config, fresh_config)
                 
                 # 重新加载火焰分析器配置
                 self.flame_analyzer_config = self._load_flame_analyzer_config()

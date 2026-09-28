@@ -32,8 +32,11 @@ def ignition_state():
 
 
 @pytest.fixture
-def controller(ignition_database):
+def controller(ignition_database, tmp_path, monkeypatch):
     pytest.importorskip("PySide6")
+    # 控制器构造时会按 PathManager 的项目根目录创建默认数据库，重定向到临时目录，避免写入仓库的 data/
+    path_module = pytest.importorskip("utils.path_manager")
+    monkeypatch.setattr(path_module.PathManager, "get_project_root", staticmethod(lambda: str(tmp_path)))
     controller_module = pytest.importorskip("controllers.ignition_controller")
     controller = controller_module.IgnitionController(
         config={
@@ -139,8 +142,10 @@ def test_collect_data_respects_temperature_gates(controller, ignition_state, exp
     assert controller.current_state == ignition_state.STOPPED
 
 
-def test_collect_end_temperature_defaults_to_500_when_missing(ignition_database, ignition_state, experiment_config):
+def test_collect_end_temperature_defaults_to_500_when_missing(ignition_database, ignition_state, experiment_config, tmp_path, monkeypatch):
     pytest.importorskip("PySide6")
+    path_module = pytest.importorskip("utils.path_manager")
+    monkeypatch.setattr(path_module.PathManager, "get_project_root", staticmethod(lambda: str(tmp_path)))
     controller_module = pytest.importorskip("controllers.ignition_controller")
     controller = controller_module.IgnitionController(config={"collect_start_temperature": 200.0})
     controller.db.close()

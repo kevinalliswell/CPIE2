@@ -284,8 +284,25 @@ class IgnitionDatabase:
             raise
     
     # ==================== 增 (Create) ====================
-    
-    def insert_ignition_data(self, pv: float, ch1: float, ch2: float, 
+
+    @staticmethod
+    def _now_timestamp() -> str:
+        """
+        本地时间戳字符串（固定带 6 位小数秒）。
+
+        实时数据必须与 experiment_sessions.start_time（datetime.now() 本地时间）使用同一时钟，
+        否则 elapsed_seconds 会偏差一个时区；固定带小数秒可与旧数据
+        （SQLite CURRENT_TIMESTAMP 写入，UTC、无小数秒）区分开来。
+        """
+        return datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
+
+    @staticmethod
+    def _legacy_utc_to_local(timestamp: datetime) -> datetime:
+        """旧数据由 CURRENT_TIMESTAMP 写入（UTC），转换为本地 naive 时间以便与会话时间比较"""
+        from datetime import timezone
+        return timestamp.replace(tzinfo=timezone.utc).astimezone().replace(tzinfo=None)
+
+    def insert_ignition_data(self, pv: float, ch1: float, ch2: float,
                             ch3: float, ch4: float, ch5: float, ch6: float,
                             session_id: int = None) -> int:
         """
@@ -301,11 +318,11 @@ class IgnitionDatabase:
         """
         try:
             self.cursor.execute("""
-                INSERT INTO ignition_realtime_data 
-                (session_id, pv, ch1, ch2, ch3, ch4, ch5, ch6)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (session_id, pv, ch1, ch2, ch3, ch4, ch5, ch6))
-            
+                INSERT INTO ignition_realtime_data
+                (session_id, timestamp, pv, ch1, ch2, ch3, ch4, ch5, ch6)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (session_id, self._now_timestamp(), pv, ch1, ch2, ch3, ch4, ch5, ch6))
+
             self.conn.commit()
             return self.cursor.lastrowid
         except sqlite3.Error as e:
@@ -325,13 +342,14 @@ class IgnitionDatabase:
             成功插入的记录数
         """
         try:
-            # 为每条数据添加 session_id
-            data_with_session = [(session_id,) + tuple(data) for data in data_list]
-            
+            # 为每条数据添加 session_id 和本地时间戳
+            timestamp = self._now_timestamp()
+            data_with_session = [(session_id, timestamp) + tuple(data) for data in data_list]
+
             self.cursor.executemany("""
-                INSERT INTO ignition_realtime_data 
-                (session_id, pv, ch1, ch2, ch3, ch4, ch5, ch6)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO ignition_realtime_data
+                (session_id, timestamp, pv, ch1, ch2, ch3, ch4, ch5, ch6)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, data_with_session)
             
             self.conn.commit()
@@ -535,8 +553,19 @@ class IgnitionDatabase:
             
             image_paths = [row[0] for row in self.cursor.fetchall() if row[0]]
             deleted_files_count = 0
-            
-            # 3. 删除物理图片文件
+
+            # 3. 先删除数据库记录（CASCADE 删除 ignition_realtime_data 和 ignition_detection），
+            #    删除失败时回滚并返回，此时不应再删除任何文件（否则记录仍在而图片已丢失）
+            self.cursor.execute("""
+                DELETE FROM experiment_sessions WHERE id = ?
+            """, (session_id,))
+            deleted_rows = self.cursor.rowcount
+            self.conn.commit()
+            if deleted_rows <= 0:
+                self.logger.error(f"✗ 未找到会话 ID: {session_id}")
+                return False
+
+            # 4. 删除物理图片文件
             for image_path in image_paths:
                 try:
                     # 如果路径是绝对路径，直接使用；否则检查相对路径
@@ -556,33 +585,28 @@ class IgnitionDatabase:
                     self.logger.error(f"✗ 删除图片文件失败: {image_path}, 错误: {e}")
                     # 继续执行，不因单个文件删除失败而中断
             
-            # 4. 删除实验文件夹（如果存在）
+            # 5. 删除实验文件夹（如果存在；只允许删除 analysis_images 目录内部的子目录）
             if experiment_id:
-                experiment_folder = PathManager.get_data_path(f"analysis_images/{experiment_id}")
-                if os.path.exists(experiment_folder) and os.path.isdir(experiment_folder):
+                analysis_root = os.path.realpath(PathManager.get_data_path("analysis_images"))
+                experiment_folder = os.path.realpath(
+                    PathManager.get_data_path(f"analysis_images/{experiment_id}")
+                )
+                inside_root = experiment_folder.startswith(analysis_root + os.sep)
+                if inside_root and os.path.isdir(experiment_folder):
                     try:
                         shutil.rmtree(experiment_folder)
                         self.logger.info(f"✓ 已删除实验文件夹: {experiment_folder}")
                     except Exception as e:
                         self.logger.error(f"✗ 删除实验文件夹失败: {experiment_folder}, 错误: {e}")
                         # 继续执行，不因文件夹删除失败而中断
-            
-            # 5. 删除数据库记录（CASCADE删除 ignition_realtime_data 和 ignition_detection）
-            # 注意：由于现在 ignition_detection 表有级联删除，会自动删除
-            self.cursor.execute("""
-                DELETE FROM experiment_sessions WHERE id = ?
-            """, (session_id,))
-            
-            self.conn.commit()
-            if self.cursor.rowcount > 0:
-                self.logger.info(
-                    f"✓ 已删除会话 ID: {session_id} 及其所有数据，"
-                    f"共删除 {deleted_files_count} 个图片文件"
-                )
-                return True
-            else:
-                self.logger.error(f"✗ 未找到会话 ID: {session_id}")
-                return False
+                elif not inside_root:
+                    self.logger.warning(f"⚠ 实验文件夹路径不在 analysis_images 目录内，跳过删除: {experiment_folder}")
+
+            self.logger.info(
+                f"✓ 已删除会话 ID: {session_id} 及其所有数据，"
+                f"共删除 {deleted_files_count} 个图片文件"
+            )
+            return True
         except sqlite3.Error as e:
             self.logger.error(f"✗ 删除会话失败: {e}")
             self.conn.rollback()
@@ -759,12 +783,15 @@ class IgnitionDatabase:
             for row in rows:
                 timestamp_str = row[0]
                 
-                # 解析时间戳，支持带毫秒或不带毫秒的格式
+                # 解析时间戳：新数据由 _now_timestamp() 写入（本地时间，带小数秒）；
+                # 旧数据由 SQLite CURRENT_TIMESTAMP 写入（UTC，无小数秒），需转换为本地时间，
+                # 否则 elapsed_seconds 会偏差一个时区（UTC+8 下约 -28800 秒）
                 try:
                     timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S.%f')
                 except ValueError:
                     try:
                         timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
+                        timestamp = self._legacy_utc_to_local(timestamp)
                     except ValueError as e:
                         self.logger.error(f"✗ 无法解析时间戳: {timestamp_str}, 错误: {e}")
                         continue
@@ -902,10 +929,13 @@ class IgnitionDatabase:
                 SET end_time = ?, status = ?
                 WHERE id = ?
             """, (datetime.now(), status, session_id))
-            
+
             self.conn.commit()
-            self.logger.info(f"✓ 实验会话已结束，ID: {session_id}, 状态: {status}")
-            return True
+            if self.cursor.rowcount > 0:
+                self.logger.info(f"✓ 实验会话已结束，ID: {session_id}, 状态: {status}")
+                return True
+            self.logger.error(f"✗ 未找到会话 ID: {session_id}")
+            return False
         except sqlite3.Error as e:
             self.logger.error(f"✗ 结束实验会话失败: {e}")
             self.conn.rollback()
@@ -1037,15 +1067,20 @@ class IgnitionDatabase:
             数据列表
         """
         try:
+            # 排序字段白名单，避免拼接任意 SQL
+            allowed_columns = {'id', 'timestamp', 'pv', 'ch1', 'ch2', 'ch3', 'ch4', 'ch5', 'ch6', 'session_id'}
+            if order_by not in allowed_columns:
+                self.logger.warning(f"⚠ 非法的排序字段: {order_by}，使用 timestamp")
+                order_by = 'timestamp'
             order = 'ASC' if ascending else 'DESC'
             sql = f"""
                 SELECT id, timestamp, pv, ch1, ch2, ch3, ch4, ch5, ch6
                 FROM ignition_realtime_data
                 ORDER BY {order_by} {order}
             """
-            
+
             if limit:
-                sql += f" LIMIT {limit}"
+                sql += f" LIMIT {int(limit)}"
             
             self.cursor.execute(sql)
             rows = self.cursor.fetchall()
@@ -1336,8 +1371,17 @@ class IgnitionDatabase:
             是否备份成功
         """
         try:
-            import shutil
-            shutil.copy2(self.db_path, backup_path)
+            backup_dir = os.path.dirname(backup_path)
+            if backup_dir:
+                os.makedirs(backup_dir, exist_ok=True)
+            self.conn.commit()
+            # 使用 SQLite 在线备份 API，而不是复制文件：
+            # 复制主文件会丢失尚未 checkpoint 的 -wal/-journal 内容，得到不完整的备份
+            dest = sqlite3.connect(backup_path)
+            try:
+                self.conn.backup(dest)
+            finally:
+                dest.close()
             self.logger.info(f"✓ 数据库已备份到: {backup_path}")
             return True
         except Exception as e:

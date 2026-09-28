@@ -26,7 +26,7 @@
 
 ### 依赖要求
 
-- Python 3.7+
+- Python 3.10+
 - pyserial
 - pymodbus
 - PyYAML
@@ -47,7 +47,7 @@ pip install -e .
 
 **方式 2: 手动安装依赖**
 ```bash
-pip install pyserial>=3.5 pymodbus>=3.0.0 pyyaml>=6.0
+pip install "pyserial>=3.5" "pymodbus>=3.10.0,<4.0.0" "pyyaml>=6.0"
 ```
 
 **方式 3: 使用 pip 安装（如果已发布）**

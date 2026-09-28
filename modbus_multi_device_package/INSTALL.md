@@ -2,14 +2,14 @@
 
 ## 系统要求
 
-- Python 3.7 或更高版本
+- Python 3.10 或更高版本（pymodbus 3.10+ 不支持更低版本）
 - Windows / Linux / macOS
 - 串口设备（用于Modbus通信）
 
 ## 依赖包
 
 - pyserial >= 3.5
-- pymodbus >= 3.0.0
+- pymodbus >= 3.10.0, < 4.0.0（devices.py 使用 device_id= 参数）
 - PyYAML >= 6.0
 
 ## 安装方法
@@ -44,7 +44,7 @@ pip install modbus_multi_device
 
 ```bash
 # 安装依赖
-pip install pyserial>=3.5 pymodbus>=3.0.0 pyyaml>=6.0
+pip install "pyserial>=3.5" "pymodbus>=3.10.0,<4.0.0" "pyyaml>=6.0"
 
 # 然后将 modbus_multi_device 目录添加到 Python 路径
 ```
