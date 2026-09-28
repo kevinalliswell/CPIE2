@@ -685,7 +685,7 @@ class ExplosionController(QObject):
             'session_id': self.current_session_id,
             'experiment_config': self.current_exp_config,
             'current_round': self.current_round_number,
-            'device_connected': self.manager is not None and hasattr(self.manager, 'started')
+            'device_connected': self.manager is not None and bool(getattr(self.manager, 'connected', False))
         }
     
     def start_data_monitoring(self):

@@ -319,6 +319,8 @@ class IgnitionExperimentPage(QWidget):
             self.ignition_temperatures[i] = None
             self.last_temperatures[i] = None
         self.time_history.clear()
+        self.start_time = None
+        self._last_plot_sample_id = None
         
         # 重置着火标签显示（使用UI组件）
         self.temperature_panel.reset_ignition_status()
@@ -400,7 +402,8 @@ class IgnitionExperimentPage(QWidget):
             return
         
         # 记录启动时间（用于图表相对时间计算）
-        self.start_time = time.time()
+        if self.start_time is None:
+            self.start_time = time.monotonic()
         
         # 注意：温度曲线已在新建实验时清空，这里不再清空
         
@@ -659,7 +662,7 @@ class IgnitionExperimentPage(QWidget):
                 or sample_id is None or sample_id == getattr(self, '_last_plot_sample_id', None)):
             return False
         self._last_plot_sample_id = sample_id
-        self.time_history.append(time.time() - self.start_time)
+        self.time_history.append(time.monotonic() - self.start_time)
         for index, value in enumerate(temperatures):
             self.temp_history[index].append(value)
         return True
@@ -681,7 +684,8 @@ class IgnitionExperimentPage(QWidget):
             self.temp_history,
             self.ignition_detected_flags,
             check_interval,
-            start_temp
+            start_temp,
+            sample_times=self.time_history,
         )
         
         # 处理检测结果

@@ -104,7 +104,9 @@ class IgnitionController(QObject):
             # 执行连接
             if self.manager.connect():
                 # 保留命令执行器，退出流程必须确认温控停止后才能断开串口。
-                self.manager.start()
+                if not self.manager.start():
+                    # Keep the transport for a subsequent confirmed heater stop.
+                    raise RuntimeError("无法启动设备管理器")
                 if self._closing:
                     return
                 
@@ -606,7 +608,7 @@ class IgnitionController(QObject):
             'is_running': self.is_running,
             'session_id': self.current_session_id,
             'experiment_config': self.current_experiment_config,
-            'device_connected': self.manager is not None and hasattr(self.manager, 'started')
+            'device_connected': self.manager is not None and bool(getattr(self.manager, 'connected', False))
         }
     
     def start_data_monitoring(self):
