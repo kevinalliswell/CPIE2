@@ -142,6 +142,39 @@ def test_invalid_inputs_return_none():
     assert detector.detect_ignition(t, np.full_like(t, 200.0)) is None  # 温升不足
 
 
+def test_legacy_second_resolution_timestamps_are_coalesced():
+    """旧数据时间戳只有秒级精度而采样周期 0.5 s：相邻两点 elapsed_seconds 相同，不能整段拒绝"""
+    t, clean, noisy = make_curve(40, seed=1)
+    temp_ref, _ = analytic_tangent(t, clean)
+    legacy_t = np.floor(t)
+    assert np.any(np.diff(legacy_t) == 0)
+
+    result = TangentMethodDetector().detect_ignition(legacy_t, noisy)
+
+    assert result is not None
+    assert abs(result["ignition_temp"] - temp_ref) < 1.5
+    # 索引必须是调用方原始数组的下标，且区间落在某个时间点的第一个采样上
+    n = len(legacy_t)
+    for key in ("onset_idx", "inflection_idx", "peak_idx"):
+        assert 0 <= result[key] < n
+    for key in ("baseline_range", "peak_range"):
+        start, end = result[key]
+        assert 0 <= start < end <= n
+        assert start == 0 or legacy_t[start] != legacy_t[start - 1]
+        assert end == n or legacy_t[end] != legacy_t[end - 1]
+    # 对话框按原始时间数组切片绘图：切片非空且覆盖基线/峰顶
+    assert len(legacy_t[slice(*result["baseline_range"])]) > 0
+    assert legacy_t[result["peak_range"][0]] <= legacy_t[result["peak_idx"]] <= legacy_t[result["peak_range"][1] - 1]
+
+
+def test_out_of_order_time_is_rejected():
+    t, _, noisy = make_curve(30)
+    shuffled = t.copy()
+    shuffled[100], shuffled[101] = shuffled[101], shuffled[100]
+
+    assert TangentMethodDetector().detect_ignition(shuffled, noisy) is None
+
+
 def test_batch_detect_returns_one_result_per_sample():
     detector = TangentMethodDetector()
     t, _, exo = make_curve(30)

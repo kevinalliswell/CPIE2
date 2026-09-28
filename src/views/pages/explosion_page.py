@@ -78,6 +78,14 @@ class ExplosionExperimentPage(QWidget):
         self.max_flame_image_path = None
         self.flame_analyzer_window = None  # 火焰分析器窗口引用
         self.preview_dialog = None  # 相机预览窗口引用
+        # 喷吹阀打开后的延时拍摄（camera.trigger_delay > 0 时使用）：定时器由页面持有，
+        # 停止/完成/清理/下一轮开始时取消，回调只对发起它的轮次生效；
+        # 时序先于拍摄结束时，等拍摄完成后再打开火焰分析器
+        self._capture_timer = QTimer(self)
+        self._capture_timer.setSingleShot(True)
+        self._capture_timer.timeout.connect(self._on_delayed_capture_timeout)
+        self._capture_round = None
+        self._analyze_after_capture = False
         # 相机拍摄参数（configs/experiment_config.yaml: explosion_experiment.camera）
         # 相机高速采集的原始目录（与 temp_dir 分开：采集后再复制到 temp_dir 供分析）
         self.camera_capture_dir = PathManager.get_data_path("camera_captures")
@@ -835,6 +843,8 @@ class ExplosionExperimentPage(QWidget):
     
     def _on_controller_experiment_started(self):
         """处理控制器的实验启动事件"""
+        self._cancel_delayed_capture()
+        self._close_preview("实验开始")
         # 更新本地状态（兼容性）
         self.is_running = True
         self.sequence_running = True
@@ -859,27 +869,63 @@ class ExplosionExperimentPage(QWidget):
 
     def _on_spray_valve_opened(self):
         """处理喷吹阀打开事件 - 触发高速拍照（可配置触发延时）"""
+        self._cancel_delayed_capture()
         if not self.camera_enabled:
             self.log_message.emit("⚠ 相机未初始化，跳过拍照")
             return
         trigger_delay = self._camera_config()['trigger_delay']
         if trigger_delay > 0:
             self.log_message.emit(f"喷吹阀打开，{trigger_delay:g} 秒后开始高速拍照...")
-            QTimer.singleShot(int(trigger_delay * 1000), self._trigger_camera_capture)
+            self._capture_round = self.controller.current_round_number
+            self._capture_timer.start(int(trigger_delay * 1000))
         else:
             self.log_message.emit("喷吹阀打开，开始高速拍照...")
             self._trigger_camera_capture()
+
+    def _cancel_delayed_capture(self, reason: str = None):
+        """取消尚未执行的延时拍摄（以及拍摄后打开分析器的待办）"""
+        was_pending = self._capture_timer.isActive()
+        self._capture_timer.stop()
+        self._capture_round = None
+        self._analyze_after_capture = False
+        if was_pending and reason:
+            self.log_message.emit(f"⚠ 已取消延时拍摄：{reason}")
+
+    def _on_delayed_capture_timeout(self):
+        """延时拍摄到时：只对发起它且仍在进行的轮次执行"""
+        capture_round = self._capture_round
+        analyze_after = self._analyze_after_capture
+        self._capture_round = None
+        self._analyze_after_capture = False
+
+        state = self.controller.current_state
+        round_active = state in (
+            ExplosionExperimentState.SEQUENCE_RUNNING,
+            ExplosionExperimentState.WAITING_ANALYSIS,
+        )
+        if capture_round is None or capture_round != self.controller.current_round_number or not round_active:
+            self.log_message.emit("⚠ 延时拍摄已跳过：发起拍摄的轮次已结束")
+            return
+
+        self._trigger_camera_capture()
+        if analyze_after:
+            QTimer.singleShot(0, self._analyze_flame)
     
     def _on_controller_sequence_completed(self):
         """处理控制器的时序完成事件"""
         # 更新本地状态
         self.sequence_running = False
         
-        # 自动打开火焰分析器：延迟到当前事件处理完成后再执行，
-        # 确保 sequence_completed 信号与按钮状态先更新。
-        # 注意：_analyze_flame 是普通方法（非注册的 Qt 槽），
-        # 因此不能用 QMetaObject.invokeMethod 按名称调用，改用 singleShot 投递到事件循环。
-        QTimer.singleShot(0, self._analyze_flame)
+        if self._capture_timer.isActive():
+            # trigger_delay 长于喷吹后的剩余时序：本轮图像尚未拍摄，拍摄完成后再打开分析器
+            self._analyze_after_capture = True
+            self.log_message.emit("时序已完成，等待延时拍摄完成后打开火焰分析器...")
+        else:
+            # 自动打开火焰分析器：延迟到当前事件处理完成后再执行，
+            # 确保 sequence_completed 信号与按钮状态先更新。
+            # 注意：_analyze_flame 是普通方法（非注册的 Qt 槽），
+            # 因此不能用 QMetaObject.invokeMethod 按名称调用，改用 singleShot 投递到事件循环。
+            QTimer.singleShot(0, self._analyze_flame)
         
         # 发送完成信号
         self.sequence_completed.emit()
@@ -953,6 +999,7 @@ class ExplosionExperimentPage(QWidget):
     
     def _on_controller_experiment_stopped(self):
         """处理控制器的实验停止事件"""
+        self._cancel_delayed_capture("本轮已停止")
         # 更新本地状态（兼容性）
         self.is_running = False
         self.sequence_running = False
@@ -1029,6 +1076,7 @@ class ExplosionExperimentPage(QWidget):
                 self.current_exp_config = None
                 self.current_round_number = 0
                 self.round_records.clear()
+                self._cancel_delayed_capture("实验已完成")
                 self.controller.reset_session()
                 self._update_records_panel()
                 
@@ -1167,6 +1215,8 @@ class ExplosionExperimentPage(QWidget):
         """参数标定 - 使用交互式对话框"""
         try:
             from views.dialogs.calibration_dialog import CalibrationDialog
+
+            self._close_preview("开始参数标定")
             
             # 创建标定对话框
             dialog = CalibrationDialog(self.flame_kit, parent=self)
@@ -1198,15 +1248,47 @@ class ExplosionExperimentPage(QWidget):
             self.log_message.emit(f"✗ 参数标定失败: {e}")
             QMessageBox.critical(self, "错误", f"参数标定失败:\n{e}")
     
+    def _close_preview(self, reason: str = None) -> bool:
+        """
+        关闭相机预览并等待其取帧线程退出。
+
+        预览在后台线程中取帧，拍摄、标定、释放相机前必须先调用本方法，
+        否则两个线程会同时访问相机 SDK。返回 False 表示取帧线程未能按时退出。
+        """
+        dialog = self.preview_dialog
+        if dialog is None:
+            return True
+        try:
+            stopped = dialog.stop()
+        except RuntimeError:
+            # 对话框已被 Qt 删除（WA_DeleteOnClose），其线程在删除前已停止
+            self.preview_dialog = None
+            return True
+        if not stopped:
+            # 保留引用：取帧线程仍在访问相机，稍后的调用需要再次等待它退出
+            self.log_message.emit("⚠ 预览取帧线程未能及时退出")
+            return False
+        self.preview_dialog = None
+        try:
+            dialog.close()
+        except RuntimeError:
+            pass
+        if reason:
+            self.log_message.emit(f"✓ 预览已关闭（{reason}）")
+        return True
+
     def _toggle_preview(self):
         """切换相机预览（非阻塞窗口：再次点击或关闭窗口即停止）"""
         try:
             from views.dialogs.camera_preview_dialog import CameraPreviewDialog
 
-            if self.preview_dialog is not None and self.preview_dialog.isVisible():
-                self.preview_dialog.close()
-                self.preview_dialog = None
+            if self.preview_dialog is not None:
+                self._close_preview()
                 self.log_message.emit("✓ 预览已关闭")
+                return
+
+            if self.controller.current_state == ExplosionExperimentState.SEQUENCE_RUNNING:
+                self.log_message.emit("⚠ 实验时序运行中，不能打开预览")
                 return
 
             dialog = CameraPreviewDialog(self.flame_kit, parent=self, timeout_s=60.0)
@@ -1216,7 +1298,10 @@ class ExplosionExperimentPage(QWidget):
                 QMessageBox.warning(self, "预览", "相机未就绪，无法预览，请先初始化相机")
                 return
             dialog.setAttribute(Qt.WA_DeleteOnClose, True)
-            dialog.destroyed.connect(lambda *_: setattr(self, 'preview_dialog', None))
+            # 只清除指向本对话框的引用：旧对话框延迟删除时不能清掉新打开的预览
+            dialog.destroyed.connect(
+                lambda *_, d=dialog: self.preview_dialog is d and setattr(self, 'preview_dialog', None)
+            )
             self.preview_dialog = dialog
             dialog.show()
             self.log_message.emit("✓ 预览窗口已打开（最长 60 秒，可随时关闭）")
@@ -1226,6 +1311,9 @@ class ExplosionExperimentPage(QWidget):
     def _manual_capture(self):
         """手动拍摄"""
         try:
+            if not self._close_preview("开始拍摄"):
+                self.log_message.emit("✗ 拍摄取消：预览尚未停止")
+                return
             self.log_message.emit("开始手动拍摄...")
             
             # 清空临时文件夹（避免旧图像干扰）
@@ -1260,6 +1348,9 @@ class ExplosionExperimentPage(QWidget):
     def _trigger_camera_capture(self):
         """触发相机拍摄（时序控制中调用）"""
         if not self.camera_enabled:
+            return
+        if not self._close_preview("开始拍摄"):
+            self.log_message.emit("✗ 相机拍摄失败：预览尚未停止")
             return
         
         try:
@@ -1847,13 +1938,27 @@ class ExplosionExperimentPage(QWidget):
             # 停止更新定时器
             if hasattr(self, 'update_timer') and self.update_timer:
                 self.update_timer.stop()
+
+            # 取消尚未执行的延时拍摄
+            if hasattr(self, '_capture_timer'):
+                self._cancel_delayed_capture()
             
             # 停止实验
             if self.is_running or self.sequence_running:
                 self._on_stop()
             
-            # 释放相机资源
-            if hasattr(self, 'flame_kit') and self.flame_kit:
+            # 关闭相机预览（须在释放相机之前：预览在后台线程中取帧）
+            preview_stopped = True
+            if getattr(self, 'preview_dialog', None) is not None:
+                try:
+                    preview_stopped = self._close_preview()
+                except Exception:
+                    self.preview_dialog = None
+
+            # 释放相机资源（预览线程仍在取帧时不释放，避免在 SDK 调用进行中销毁相机句柄）
+            if not preview_stopped:
+                print("预览取帧线程未退出，跳过释放相机")
+            elif hasattr(self, 'flame_kit') and self.flame_kit:
                 try:
                     if hasattr(self.flame_kit, 'release'):
                         self.flame_kit.release()
@@ -1867,13 +1972,6 @@ class ExplosionExperimentPage(QWidget):
                 except Exception:
                     pass
 
-            # 关闭相机预览窗口
-            if getattr(self, 'preview_dialog', None) is not None:
-                try:
-                    self.preview_dialog.close()
-                except Exception:
-                    pass
-                self.preview_dialog = None
             
             # 数据库由Controller管理，无需在此关闭
             
