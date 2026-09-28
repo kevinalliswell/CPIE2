@@ -513,13 +513,27 @@ echo CPIE {self.app_version} 安装脚本
 echo ============================================================
 echo.
 
-set "INSTALL_DIR=%PROGRAMFILES%\\CPIE"
+rem 安装到当前用户可写的目录：程序运行时会把 data\\、logs\\ 和相机临时图片
+rem 写在可执行文件旁边，装到 Program Files 下非管理员账户会因权限失败。
+rem 也可以通过第一个参数指定安装目录: install.bat D:\\CPIE
+if not "%~1"=="" (
+    set "INSTALL_DIR=%~1"
+) else if defined LOCALAPPDATA (
+    set "INSTALL_DIR=%LOCALAPPDATA%\\Programs\\CPIE"
+) else (
+    set "INSTALL_DIR=%USERPROFILE%\\CPIE"
+)
 echo 安装目录: %INSTALL_DIR%
 echo.
 
 if not exist "%INSTALL_DIR%" (
     echo 创建安装目录...
     mkdir "%INSTALL_DIR%"
+    if errorlevel 1 (
+        echo 无法创建安装目录，请检查权限或指定其他目录: install.bat ^<目录^>
+        pause
+        exit /b 1
+    )
 )
 
 echo 复制文件...
@@ -552,21 +566,21 @@ echo "CPIE {self.app_version} 安装脚本"
 echo "============================================================"
 echo
 
-INSTALL_DIR="/opt/CPIE"
+# 安装到当前用户可写的目录：程序运行时会把 data/、logs/ 和相机临时图片写在
+# 可执行文件旁边，装到 /opt 下普通用户会因权限失败。可通过第一个参数指定目录。
+INSTALL_DIR="${{1:-$HOME/.local/opt/CPIE}}"
+BIN_DIR="$HOME/.local/bin"
 echo "安装目录: $INSTALL_DIR"
 echo
 
-if [ ! -d "$INSTALL_DIR" ]; then
-    echo "创建安装目录..."
-    sudo mkdir -p "$INSTALL_DIR"
-fi
+mkdir -p "$INSTALL_DIR" "$BIN_DIR"
 
 echo "复制文件..."
-sudo cp -r "{self.app_name}" "$INSTALL_DIR/"
-sudo chmod +x "$INSTALL_DIR/{self.app_name}/{self.app_name}"
+cp -r "{self.app_name}" "$INSTALL_DIR/"
+chmod +x "$INSTALL_DIR/{self.app_name}/{self.app_name}"
 
-echo "创建系统链接..."
-sudo ln -sf "$INSTALL_DIR/{self.app_name}/{self.app_name}" "/usr/local/bin/CPIE"
+echo "创建启动链接..."
+ln -sf "$INSTALL_DIR/{self.app_name}/{self.app_name}" "$BIN_DIR/CPIE"
 
 echo "创建桌面快捷方式..."
 DESKTOP_FILE="$HOME/Desktop/CPIE.desktop"
@@ -588,7 +602,7 @@ echo "============================================================"
 echo "安装完成！"
 echo "============================================================"
 echo "可执行文件: $INSTALL_DIR/{self.app_name}/{self.app_name}"
-echo "命令行启动: CPIE"
+echo "命令行启动: CPIE  （需要 $BIN_DIR 位于 PATH 中）"
 echo "桌面快捷方式: $DESKTOP_FILE"
 echo "============================================================"
 echo
