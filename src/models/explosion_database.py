@@ -675,8 +675,19 @@ class ExplosionDatabase:
             
             image_paths = [row[0] for row in self.cursor.fetchall() if row[0]]
             deleted_files_count = 0
-            
-            # 2. 删除物理图片文件
+
+            # 2. 先删除数据库记录（利用CASCADE自动删除关联表）；
+            #    删除失败时回滚并返回，此时不应再删除任何文件（否则记录仍在而图片已丢失）
+            self.cursor.execute("""
+                DELETE FROM experiment_sessions WHERE id = ?
+            """, (session_id,))
+            deleted_rows = self.cursor.rowcount
+            self.conn.commit()
+            if deleted_rows <= 0:
+                self.logger.error(f"✗ 未找到会话 ID: {session_id}")
+                return False
+
+            # 3. 删除物理图片文件
             max_flame_images_dir = PathManager.get_max_flame_images_path()
             for image_path in image_paths:
                 try:
@@ -698,18 +709,8 @@ class ExplosionDatabase:
                     self.logger.error(f"✗ 删除图片文件失败: {image_path}, 错误: {e}")
                     # 继续执行，不因单个文件删除失败而中断
             
-            # 3. 删除数据库记录（利用CASCADE自动删除关联表）
-            self.cursor.execute("""
-                DELETE FROM experiment_sessions WHERE id = ?
-            """, (session_id,))
-            
-            self.conn.commit()
-            if self.cursor.rowcount > 0:
-                self.logger.info(f"✓ 已删除会话 ID: {session_id} 及其所有数据，共删除 {deleted_files_count} 个图片文件")
-                return True
-            else:
-                self.logger.error(f"✗ 未找到会话 ID: {session_id}")
-                return False
+            self.logger.info(f"✓ 已删除会话 ID: {session_id} 及其所有数据，共删除 {deleted_files_count} 个图片文件")
+            return True
         except sqlite3.Error as e:
             self.logger.error(f"✗ 删除会话失败: {e}")
             self.conn.rollback()
@@ -1277,9 +1278,10 @@ class ExplosionDatabase:
             是否备份成功
         """
         try:
-            import shutil
-            import os
-            
+            if os.path.realpath(backup_path) == os.path.realpath(self.db_path):
+                self.logger.error("备份路径不能与正在使用的数据库相同")
+                return False
+
             # 确保备份目录存在
             backup_dir = os.path.dirname(backup_path)
             if backup_dir and not os.path.exists(backup_dir):
@@ -1289,23 +1291,20 @@ class ExplosionDatabase:
             # 先提交所有未提交的事务，确保数据已写入
             if self.conn:
                 self.conn.commit()
-            
-            # 复制文件
-            shutil.copy2(self.db_path, backup_path)
-            
-            # 验证备份文件是否存在且大小合理
-            if os.path.exists(backup_path):
-                original_size = os.path.getsize(self.db_path)
-                backup_size = os.path.getsize(backup_path)
-                if backup_size > 0 and abs(original_size - backup_size) < 1024:  # 允许1KB差异
-                    self.logger.info(f"✓ 数据库已备份到: {backup_path} (大小: {backup_size} 字节)")
-                    return True
-                else:
-                    self.logger.error(f"✗ 备份文件大小异常: 原始={original_size}, 备份={backup_size}")
-                    return False
-            else:
-                self.logger.error("✗ 备份文件不存在")
-                return False
+
+            # 使用 SQLite 在线备份 API：数据库为 WAL 模式，直接复制主文件会丢失
+            # 尚未 checkpoint 的 -wal 内容，得到一个缺表/缺数据的"备份"
+            dest = sqlite3.connect(backup_path)
+            try:
+                self.conn.backup(dest)
+            finally:
+                dest.close()
+
+            if os.path.exists(backup_path) and os.path.getsize(backup_path) > 0:
+                self.logger.info(f"✓ 数据库已备份到: {backup_path} (大小: {os.path.getsize(backup_path)} 字节)")
+                return True
+            self.logger.error("✗ 备份文件不存在或为空")
+            return False
         except Exception as e:
             self.logger.error(f"✗ 数据库备份失败: {e}")
             import traceback
