@@ -217,6 +217,123 @@ def test_verify_relays_off_waits_for_next_poll(make_controller):
     assert controller._verify_relays_off(step) is True
 
 
+class _AliveThread:
+    """模拟一个尚未退出的旧时序线程"""
+
+    def __init__(self):
+        self.alive = True
+        self.join_timeouts = []
+
+    def is_alive(self):
+        return self.alive
+
+    def join(self, timeout=None):
+        self.join_timeouts.append(timeout)
+
+
+def test_start_refused_until_previous_sequence_thread_exits(make_controller):
+    """停止后旧时序线程未退出前不得启动新一轮，否则旧线程会继续执行剩余步骤"""
+    controller = make_controller()
+    old_thread = _AliveThread()
+    controller._sequence_thread = old_thread
+
+    assert controller.start_experiment() is False
+    assert old_thread.join_timeouts  # 先等待过旧线程
+    assert controller.current_state == S.SESSION_CREATED
+    assert controller.current_round_number == 0
+    assert controller.manager.sent == []
+
+    old_thread.alive = False
+    assert controller.start_experiment() is True
+    assert controller._sequence_thread is not old_thread
+    pump(0.1)
+    controller.stop_experiment()
+    pump(0.6)
+
+
+def test_immediate_restart_after_stop_waits_for_old_thread(make_controller):
+    controller = make_controller(sequence_steps=[
+        {"step": 1, "name": "open", "action": "relay_on", "relay": "spray_valve", "delay_after": 0.0},
+        {"step": 2, "name": "wait", "action": "delay", "duration": 5.0},
+        {"step": 3, "name": "purge", "action": "relay_on", "relay": "purge_valve", "delay_after": 0.0},
+    ])
+    assert controller.start_experiment()
+    pump(0.1)
+    first_thread = controller._sequence_thread
+    assert controller.stop_experiment()
+
+    # 立即重新启动：必须等旧线程退出，而不是让它和新一轮并发
+    assert controller.start_experiment()
+    assert not first_thread.is_alive()
+    pump(0.2)
+    assert controller.current_state == S.SEQUENCE_RUNNING
+    assert controller.sequence_running
+    assert (2, True) not in controller.manager.sent
+    controller.stop_experiment()
+    pump(0.6)
+
+
+def test_stop_sends_offs_after_in_flight_relay_on(make_controller):
+    """停止时补发的关闭命令必须排在时序线程正在下发的打开命令之后"""
+    import threading
+
+    controller = make_controller()
+    manager = controller.manager
+    entered = threading.Event()
+    release = threading.Event()
+    original_send = manager.send_control
+
+    def blocking_send(device_name, control_data, priority="normal"):
+        if control_data["set_relay"] == {"relay": 1, "state": True}:
+            entered.set()
+            release.wait(2.0)
+        return original_send(device_name, control_data, priority)
+
+    manager.send_control = blocking_send
+    controller._set_state(S.SEQUENCE_RUNNING)
+    controller.is_running = True
+    controller.sequence_running = True
+
+    results = {}
+    worker = threading.Thread(target=lambda: results.setdefault("on", controller._sequence_relay_on("spray_valve")))
+    worker.start()
+    assert entered.wait(2.0)
+
+    stopper = threading.Thread(target=lambda: results.setdefault("stop", controller.stop_experiment()))
+    stopper.start()
+    time.sleep(0.1)
+    assert all(state for _, state in manager.sent)  # 打开命令入队前不得先发关闭命令
+
+    release.set()
+    worker.join(2.0)
+    stopper.join(2.0)
+
+    assert results == {"on": True, "stop": True}
+    on_index = manager.sent.index((1, True))
+    off_indices = [i for i, (_, state) in enumerate(manager.sent) if state is False]
+    assert off_indices and min(off_indices) > on_index
+    # 停止之后时序线程不再下发打开命令
+    assert controller._sequence_relay_on("purge_valve") is None
+    assert (2, True) not in manager.sent
+
+
+def test_stale_sequence_thread_does_not_touch_new_run(make_controller):
+    controller = make_controller(sequence_steps=[])
+    controller._set_state(S.SEQUENCE_RUNNING)
+    controller.sequence_running = True
+    controller._sequence_generation = 2
+    completed = []
+    controller.sequence_completed.connect(lambda: completed.append(True))
+
+    controller._execute_sequence(generation=1)
+
+    assert controller.sequence_running is True
+    assert controller.current_state == S.SEQUENCE_RUNNING
+    assert completed == []
+    controller.sequence_running = False
+    controller._set_state(S.SESSION_CREATED)
+
+
 def test_finalize_from_session_created_is_recorded_as_completed(make_controller):
     controller = make_controller()
     controller.add_test_round(controller.current_session_id, 1, 100.0, None)

@@ -83,6 +83,15 @@ class ExplosionController(QObject):
         self._sequence_abort_reason = None
         self._sequence_error = None
 
+        # 时序工作线程同步：
+        # - _sequence_lock 使"检查运行标志 + 下发打开命令"与"停止时清除运行标志"互斥，
+        #   保证停止后补发的关闭命令一定排在时序线程最后一条打开命令之后；
+        # - _sequence_thread / _sequence_generation 用于在旧线程退出前拒绝启动新一轮，
+        #   并防止旧线程收尾时改写新一轮的状态。
+        self._sequence_lock = threading.Lock()
+        self._sequence_thread = None
+        self._sequence_generation = 0
+
     def _interruptible_wait(self, duration_seconds: float) -> bool:
         """分片等待，允许时序停止时尽快退出。返回True表示完成等待。"""
         remaining_ms = max(0, int(duration_seconds * 1000))
@@ -138,6 +147,28 @@ class ExplosionController(QObject):
             self.log_message.emit(f"⚠ {failure_msg}")
             self.logger.warning(failure_msg)
         return failures
+
+    def _sequence_relay_on(self, relay_name: str):
+        """
+        时序线程中打开继电器。
+
+        与 stop_experiment 共用 _sequence_lock：已停止时不再下发打开命令并返回 None；
+        否则返回 control_relay 的结果。这样用户停止时补发的关闭命令不会被
+        一条正在入队的打开命令抢到后面（否则阀门会在"停止"后保持导通）。
+        """
+        with self._sequence_lock:
+            if not self.sequence_running:
+                return None
+            return self.control_relay(relay_name, True)
+
+    def _wait_for_sequence_thread(self, timeout: float) -> bool:
+        """等待上一轮时序线程退出（不在时序线程自身中调用）。返回 True 表示已无存活的时序线程。"""
+        thread = self._sequence_thread
+        if thread is None or thread is threading.current_thread():
+            return True
+        if thread.is_alive():
+            thread.join(timeout=max(0.0, timeout))
+        return not thread.is_alive()
 
     def _handle_sequence_stop_or_abort(self):
         """在步骤失败或外部停止后停止时序并输出一次中断日志。"""
@@ -305,6 +336,12 @@ class ExplosionController(QObject):
         if self.sequence_running:
             self.log_message.emit("✗ 实验正在进行中")
             return False
+
+        # 用户刚停止上一轮时，旧的时序线程可能还在分片等待中尚未退出；
+        # 此时启动新一轮会把运行标志重新置位，让旧线程继续执行剩余步骤并下发继电器命令。
+        if not self._wait_for_sequence_thread(timeout=1.0):
+            self.log_message.emit("✗ 上一轮时序仍在退出，请稍后再启动")
+            return False
         
         if not self.manager:
             self.log_message.emit("✗ 设备未连接！")
@@ -343,10 +380,14 @@ class ExplosionController(QObject):
         self.experiment_started.emit()
         
         # 在新线程中执行时序
-        thread = threading.Thread(target=self._execute_sequence, daemon=True)
+        self._sequence_generation += 1
+        thread = threading.Thread(
+            target=self._execute_sequence, args=(self._sequence_generation,), daemon=True
+        )
+        self._sequence_thread = thread
         thread.start()
     
-    def _execute_sequence(self):
+    def _execute_sequence(self, generation: int = None):
         """执行时序控制（后台线程）"""
         try:
             steps = self.config.get('sequence_steps', [])
@@ -367,7 +408,11 @@ class ExplosionController(QObject):
                     # 如果是打开喷吹阀，发送信号触发拍摄
                     if relay == 'spray_valve':
                         self.spray_valve_opened.emit()
-                    if not self.control_relay(relay, True):
+                    result = self._sequence_relay_on(relay)
+                    if result is None:  # 已被停止
+                        self._handle_sequence_stop_or_abort()
+                        break
+                    if not result:
                         self._abort_sequence(f"步骤{step_num} 执行失败: 无法打开继电器 {relay}")
                         break
 
@@ -380,7 +425,10 @@ class ExplosionController(QObject):
                 elif action == 'relay_multi_on':
                     relays = step['relays']
                     for relay in relays:
-                        if not self.control_relay(relay, True):
+                        result = self._sequence_relay_on(relay)
+                        if result is None:  # 已被停止
+                            break
+                        if not result:
                             self._abort_sequence(f"步骤{step_num} 执行失败: 无法打开继电器 {relay}")
                             break
                     if not self.sequence_running:
@@ -421,7 +469,8 @@ class ExplosionController(QObject):
             if self._sequence_error:
                 raise self._sequence_error
 
-            if self.sequence_running:
+            is_current_run = generation is None or generation == self._sequence_generation
+            if self.sequence_running and is_current_run:
                 self.log_message.emit("=" * 50)
                 self.log_message.emit(f"✓ 第 {self.current_round_number} 轮实验完成")
                 self.sequence_completed.emit()
@@ -432,10 +481,12 @@ class ExplosionController(QObject):
             self._set_state(ExplosionExperimentState.ERROR)
 
         finally:
-            self.sequence_running = False
-            self._set_post_sequence_state()
-            self._sequence_abort_reason = None
-            self._sequence_error = None
+            # 旧线程（已被新一轮取代）不得改写当前轮次的标志与状态
+            if generation is None or generation == self._sequence_generation:
+                self.sequence_running = False
+                self._set_post_sequence_state()
+                self._sequence_abort_reason = None
+                self._sequence_error = None
     
     def stop_experiment(self):
         """
@@ -455,12 +506,13 @@ class ExplosionController(QObject):
         try:
             self.log_message.emit("停止实验...")
 
-            # 停止时序
-            self.sequence_running = False
-            self._sequence_abort_reason = "用户主动停止实验"
-            self._sequence_error = None
+            # 停止时序：持锁清除运行标志，之后时序线程不会再下发任何打开命令
+            with self._sequence_lock:
+                self.sequence_running = False
+                self._sequence_abort_reason = "用户主动停止实验"
+                self._sequence_error = None
 
-            # 关闭所有继电器
+            # 关闭所有继电器（排在时序线程已下发的所有打开命令之后）
             relay_shutdown_failures = self._shutdown_all_relays()
 
             # 停止设备管理器（但不关闭连接，因为可能还需要使用）
@@ -840,6 +892,9 @@ class ExplosionController(QObject):
             # 停止实验
             if self.is_running or self.sequence_running:
                 self.stop_experiment()
+            # 等待时序线程退出后再断开设备，避免其在断开过程中继续访问设备管理器
+            if not self._wait_for_sequence_thread(timeout=2.0):
+                self.logger.warning("时序线程未能在 2 秒内退出")
             
             # 停止数据监控定时器
             if hasattr(self, 'data_monitor_timer'):
