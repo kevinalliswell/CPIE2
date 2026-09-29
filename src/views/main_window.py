@@ -108,6 +108,7 @@ class MainWindow(QMainWindow):
             self.secondary_display_window = SecondaryDisplayWindow(
                 explosion_controller=explosion_controller,
                 ignition_controller=ignition_controller,
+                ui_config=self.ui_config,
                 parent=None  # 独立窗口
             )
             

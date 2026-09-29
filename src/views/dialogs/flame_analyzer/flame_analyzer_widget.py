@@ -408,7 +408,9 @@ class FlameAnalyzerWidget(QDialog):
                 self.list_widget.addItem(f"{result.filename}: 分析失败")
         
         # 定位到最大值
-        self.list_widget.setCurrentRow(self.statistics.max_flame_index)
+        maximum_row = next((index for index, result in enumerate(self.analysis_results)
+                            if result.success and result.filename == self.statistics.max_flame_file), -1)
+        self.list_widget.setCurrentRow(maximum_row)
         
         # 保存结果到字典
         max_flame_path = os.path.join(self.output_folder, self.statistics.max_flame_file)
@@ -544,6 +546,10 @@ class FlameAnalyzerWidget(QDialog):
         # 自动分析模式下，只要按钮启用就可以关闭
         self.close()
     
+    def reject(self):
+        """Route Escape and dialog rejection through result delivery and cleanup."""
+        self.close()
+
     def closeEvent(self, event):
         """窗口关闭事件"""
         # 停止播放

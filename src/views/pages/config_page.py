@@ -790,6 +790,18 @@ class ConfigPage(QWidget):
         
         return scroll
     
+    @staticmethod
+    def _replace_config_in_place(target, source):
+        """Keep references held by controllers and nested UI components alive."""
+        for key in list(target):
+            if key not in source:
+                del target[key]
+        for key, value in source.items():
+            if isinstance(value, dict) and isinstance(target.get(key), dict):
+                ConfigPage._replace_config_in_place(target[key], value)
+            else:
+                target[key] = value
+
     def _on_reset(self):
         """重置为默认值"""
         reply = QMessageBox.question(
@@ -804,7 +816,12 @@ class ConfigPage(QWidget):
             try:
                 # 重新加载实验配置文件
                 with open(self.config_path, 'r', encoding='utf-8') as f:
-                    self.config = yaml.safe_load(f)
+                    loaded = yaml.safe_load(f)
+                if not isinstance(loaded, dict) or not isinstance(loaded.get('ui'), dict):
+                    raise ValueError("配置必须包含 ui 字典")
+                self._replace_config_in_place(self.config, loaded)
+                if self.ui_config is not self.config['ui']:
+                    self._replace_config_in_place(self.ui_config, loaded['ui'])
                 
                 # 重新加载火焰分析器配置
                 self.flame_analyzer_config = self._load_flame_analyzer_config()

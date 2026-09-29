@@ -82,31 +82,34 @@ class ModbusDeviceManager:
         self.logger = logging.getLogger('ModbusManager')
         self.logger.setLevel(log_level)
         
-        # 控制台输出
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(log_level)
         formatter = logging.Formatter(
             '[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
+        console_handler = next((h for h in self.logger.handlers
+                                if getattr(h, '_cpie_modbus_kind', None) == 'console'), None)
+        if console_handler is None:
+            console_handler = logging.StreamHandler()
+            console_handler._cpie_modbus_kind = 'console'
+            self.logger.addHandler(console_handler)
+        console_handler.setLevel(log_level)
         console_handler.setFormatter(formatter)
-        self.logger.addHandler(console_handler)
-        
-        # 文件输出
+
         if log_config.get('save_to_file', False):
             log_dir = log_config.get('log_dir', 'logs')
             os.makedirs(log_dir, exist_ok=True)
-            
-            log_file = os.path.join(
-                log_dir,
-                f"modbus_{datetime.now().strftime('%Y%m%d')}.log"
-            )
-            
-            file_handler = logging.FileHandler(log_file, encoding='utf-8')
+            log_file = os.path.abspath(os.path.join(
+                log_dir, f"modbus_{datetime.now().strftime('%Y%m%d')}.log"))
+            file_handler = next((h for h in self.logger.handlers
+                                 if getattr(h, '_cpie_modbus_kind', None) == 'file'
+                                 and h.baseFilename == log_file), None)
+            if file_handler is None:
+                file_handler = logging.FileHandler(log_file, encoding='utf-8')
+                file_handler._cpie_modbus_kind = 'file'
+                self.logger.addHandler(file_handler)
             file_handler.setLevel(log_level)
             file_handler.setFormatter(formatter)
-            self.logger.addHandler(file_handler)
-    
+
     def connect(self) -> bool:
         """
         连接串口并验证全部必需设备；部分失败时保留串口用于安全关断。

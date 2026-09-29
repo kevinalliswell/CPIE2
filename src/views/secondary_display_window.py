@@ -39,7 +39,7 @@ class SecondaryDisplayWindow(QMainWindow):
         """解析副屏样式文件路径。"""
         return Path(PathManager.get_styles_path("secondary_display_light.qss"))
 
-    def __init__(self, explosion_controller=None, ignition_controller=None, parent=None):
+    def __init__(self, explosion_controller=None, ignition_controller=None, parent=None, ui_config=None):
         super().__init__(parent)
 
         self.secondary_style_path = self._resolve_style_path()
@@ -61,6 +61,11 @@ class SecondaryDisplayWindow(QMainWindow):
 
         # 初始化UI
         self._init_ui()
+        interval = (ui_config or {}).get('update_interval', 500)
+        if type(interval) is not int or not 0 < interval <= 2147483647:
+            interval = 500
+        self.explosion_panel.update_timer.setInterval(interval)
+        self.ignition_panel.update_timer.setInterval(interval)
 
         # 应用样式
         self._apply_styles()
