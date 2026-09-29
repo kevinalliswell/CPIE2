@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 import json
 import yaml
 import re
+import math
 from utils.logger import LoggerManager
 from utils.path_manager import PathManager
 from views.ui_components.explosion_detail_card import ExplosionDetailCard
@@ -24,6 +25,15 @@ from utils.tools import Tools
 
 class HistoryQueryPage(QWidget):
     """历史数据查询界面"""
+
+    @staticmethod
+    def _max_flame_length(rounds):
+        """Return the largest measured round, independently of the session mean."""
+        lengths = [row.get('flame_length') for row in rounds or []]
+        valid = [value for value in lengths
+                 if isinstance(value, (int, float)) and not isinstance(value, bool)
+                 and math.isfinite(value)]
+        return max(valid) if valid else None
 
     def __init__(self):
         super().__init__()
@@ -646,7 +656,8 @@ class HistoryQueryPage(QWidget):
                 ]
                 
                 if result:
-                    exp_data['max_flame_length'] = result.get('avg_flame_length')
+                    exp_data['max_flame_length'] = self._max_flame_length(tests)
+                    exp_data['avg_flame_length'] = result.get('avg_flame_length')
                     exp_data['explosion_level'] = result.get('explosion_level')
                 
                 # 字段映射
@@ -751,7 +762,8 @@ class HistoryQueryPage(QWidget):
             ]
             
             if result:
-                exp_data['max_flame_length'] = result.get('avg_flame_length')
+                exp_data['max_flame_length'] = self._max_flame_length(tests)
+                exp_data['avg_flame_length'] = result.get('avg_flame_length')
                 exp_data['explosion_level'] = result.get('explosion_level')
                 exp_data['repeat_times'] = result.get('total_rounds', 5)
             
@@ -858,7 +870,7 @@ class HistoryQueryPage(QWidget):
             dialog = TangentAnalysisDialog(
                 session_id=exp_id,
                 db=self.ignition_db,
-                config=self.config,
+                config=(self.config or {}).get('ignition_experiment', self.config or {}),
                 parent=self
             )
             dialog.exec()
@@ -977,55 +989,42 @@ class HistoryQueryPage(QWidget):
                     QMessageBox.critical(self, "错误", f"删除记录失败：{str(e)}")
 
     def change_password(self):
-        """修改管理员密码"""
-        # TODO: 实现密码管理功能
-        QMessageBox.information(self, "提示", "密码管理功能待实现")
-        return
-        
-        # 以下代码待实现密码管理器后启用
-        # # 验证旧密码
-        # old_pwd, ok = QInputDialog.getText(
-        #     self,
-        #     "修改密码",
-        #     "请输入旧密码:",
-        #     QLineEdit.Password
-        # )
-        #
-        # if not ok or not self.password_manager.verify_password(old_pwd):
-        #     QMessageBox.warning(self, "警告", "密码错误！")
-        #     return
-        #
-        # # 输入新密码
-        # new_pwd, ok = QInputDialog.getText(
-        #     self,
-        #     "修改密码",
-        #     "请输入新密码:",
-        #     QLineEdit.Password
-        # )
-        #
-        # if not ok:
-        #     return
-        #
-        # # 确认新密码
-        # confirm_pwd, ok = QInputDialog.getText(
-        #     self,
-        #     "修改密码",
-        #     "请确认新密码:",
-        #     QLineEdit.Password
-        # )
-        #
-        # if not ok:
-        #     return
-        #
-        # if new_pwd != confirm_pwd:
-        #     QMessageBox.warning(self, "警告", "两次输入的密码不一致！")
-        #     return
-        #
-        # # 修改密码
-        # if self.password_manager.change_password(old_pwd, new_pwd):
-        #     QMessageBox.information(self, "提示", "密码修改成功！")
-        # else:
-        #     QMessageBox.critical(self, "错误", "密码修改失败！")
+        """修改管理员密码（删除记录等敏感操作的确认口令），快捷键 Ctrl+Alt+P"""
+        from PySide6.QtWidgets import QInputDialog, QLineEdit
+        from utils.password_manager import PasswordManager
+
+        password_manager = PasswordManager()
+
+        old_pwd, ok = QInputDialog.getText(self, "修改密码", "请输入旧密码:", QLineEdit.Password)
+        if not ok:
+            return
+        if not password_manager.verify_password(old_pwd):
+            QMessageBox.warning(self, "警告", "旧密码错误！")
+            return
+
+        new_pwd, ok = QInputDialog.getText(
+            self, "修改密码",
+            f"请输入新密码（至少 {PasswordManager.MIN_PASSWORD_LENGTH} 位）:",
+            QLineEdit.Password
+        )
+        if not ok:
+            return
+        if len(new_pwd) < PasswordManager.MIN_PASSWORD_LENGTH:
+            QMessageBox.warning(self, "警告", f"新密码至少需要 {PasswordManager.MIN_PASSWORD_LENGTH} 位！")
+            return
+
+        confirm_pwd, ok = QInputDialog.getText(self, "修改密码", "请确认新密码:", QLineEdit.Password)
+        if not ok:
+            return
+        if new_pwd != confirm_pwd:
+            QMessageBox.warning(self, "警告", "两次输入的密码不一致！")
+            return
+
+        if password_manager.change_password(old_pwd, new_pwd):
+            self.logger.info("管理员密码已修改")
+            QMessageBox.information(self, "提示", "密码修改成功！")
+        else:
+            QMessageBox.critical(self, "错误", "密码修改失败，请查看日志")
 
     def export_data(self):
         """导出实验数据"""
@@ -1190,8 +1189,8 @@ class HistoryQueryPage(QWidget):
                         result = self.explosion_db.get_session_result(exp_id)
                         tests = self.explosion_db.get_session_test_rounds(exp_id)
                         
-                        max_flame = result.get('avg_flame_length', 0) if result else 0
-                        avg_flame = result.get('avg_flame_length', 0) if result else 0
+                        max_flame = self._max_flame_length(tests)
+                        avg_flame = result.get('avg_flame_length') if result else None
                         level = result.get('explosion_level', '') if result else ''
                         rounds = len(tests) if tests else 0
                         
@@ -1396,8 +1395,8 @@ class HistoryQueryPage(QWidget):
                             result = self.explosion_db.get_session_result(exp_id)
                             tests = self.explosion_db.get_session_test_rounds(exp_id)
                             
-                            max_flame = result.get('avg_flame_length', 0) if result else 0
-                            avg_flame = result.get('avg_flame_length', 0) if result else 0
+                            max_flame = self._max_flame_length(tests)
+                            avg_flame = result.get('avg_flame_length') if result else None
                             level = result.get('explosion_level', '') if result else ''
                             rounds = len(tests) if tests else 0
                             

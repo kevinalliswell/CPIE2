@@ -25,7 +25,7 @@ def qapp():
 
 
 @pytest.fixture
-def history(qapp, tmp_path, monkeypatch):
+def history(qapp, tmp_path, monkeypatch, request):
     root = Path(__file__).resolve().parents[1]
     monkeypatch.syspath_prepend(str(root / "src"))
     monkeypatch.syspath_prepend(str(root / "modbus_multi_device_package"))
@@ -57,7 +57,8 @@ def history(qapp, tmp_path, monkeypatch):
     )
     assert ignition_id == explosion_id == 1
     ignition_db.record_ignition_detection(ignition_id, 1, 421.5)
-    explosion_db.add_test_round(explosion_id, 1, 123.5, None)
+    for number, length in enumerate(getattr(request, 'param', [123.5]), 1):
+        explosion_db.add_test_round(explosion_id, number, length, None)
     explosion_db.finalize_experiment(explosion_id)
 
     class DetailCard(QWidget):
@@ -242,3 +243,40 @@ def test_missing_typed_record_does_not_report_successful_export(history, file_fo
     exporter = page._export_to_csv if file_format == "csv" else page._export_to_excel
     assert not exporter(str(path), [1], "explosion", True, True)
     assert not path.exists()
+
+
+@pytest.mark.parametrize('history', [[123.5, 246.5]], indirect=True)
+def test_details_and_report_separate_average_from_maximum(history, monkeypatch):
+    captured = {}
+    class ReportDialog:
+        def __init__(self, session_id, kind, data, **kwargs):
+            captured.update(data)
+        def exec(self):
+            return QDialog.Rejected
+    monkeypatch.setattr(history.module, 'GenerateReportDialog', ReportDialog)
+    select_type(history.page, '爆炸性')
+    detail = history.page.explosion_detail_card.data
+    assert detail['avg_flame_length'] == 185.0
+    assert detail['max_flame_length'] == 246.5
+    history.page.on_generate_report()
+    assert captured['avg_flame_length'] == 185.0
+    assert captured['max_flame_length'] == 246.5
+
+
+@pytest.mark.parametrize('file_format', ['csv', 'excel'])
+@pytest.mark.parametrize('history', [[123.5, 246.5]], indirect=True)
+def test_export_maximum_is_the_largest_round_not_the_session_average(history, file_format):
+    page = history.page
+    path = history.tmp / ('flames.csv' if file_format == 'csv' else 'flames.xlsx')
+    exporter = page._export_to_csv if file_format == 'csv' else page._export_to_excel
+    assert exporter(str(path), [1], 'explosion', True, True, True, True)
+    if file_format == 'csv':
+        with path.open(encoding='utf-8-sig', newline='') as stream:
+            rows = list(csv.reader(stream))
+    else:
+        import openpyxl
+        workbook = openpyxl.load_workbook(path)
+        rows = list(workbook['实验数据'].values)
+        workbook.close()
+    assert float(rows[1][11]) == 246.5
+    assert float(rows[1][12]) == 185.0

@@ -5,6 +5,8 @@
 用于选择预设模式或自定义温控曲线
 """
 
+import copy
+import math
 import json
 from pathlib import Path
 from PySide6.QtWidgets import (
@@ -174,7 +176,8 @@ class ModeSwitchDialog(QDialog):
         """预设模式被选中"""
         if checked:
             self.current_mode_name = preset['name']
-            self.current_segments = preset['segments'].copy()
+            # 深拷贝：表格编辑会原地修改内层 [温度, 时间] 列表，浅拷贝会污染预设本身
+            self.current_segments = copy.deepcopy(preset['segments'])
             self._update_table()
     
     def _on_custom_selected(self, checked):
@@ -213,22 +216,32 @@ class ModeSwitchDialog(QDialog):
         if item.column() == 0:  # 程序段号不可编辑
             return
         
+        row = item.row()
+        col = item.column()
         try:
-            row = item.row()
-            col = item.column()
             value = float(item.text())
-            
+            if not math.isfinite(value) or (col == 2 and not value.is_integer()):
+                raise ValueError('temperature must be finite and time must be an integer')
+
             if col == 1:  # 温度
                 self.current_segments[row][0] = value
             elif col == 2:  # 时间
                 self.current_segments[row][1] = int(value)
-            
+
             # 如果修改了表格，自动切换到自定义模式
             if self.preset_radios:
                 self.preset_radios[-1].setChecked(True)
-                
-        except (ValueError, IndexError):
-            pass
+
+        except (ValueError, OverflowError, IndexError):
+            # 非法输入：把单元格恢复为当前有效值，避免表格显示与实际数据不一致
+            try:
+                old_value = self.current_segments[row][0 if col == 1 else 1]
+                self.segments_table.blockSignals(True)
+                item.setText(str(old_value))
+            except IndexError:
+                pass
+            finally:
+                self.segments_table.blockSignals(False)
     
     def _add_segment(self):
         """添加新程序段"""
@@ -269,12 +282,12 @@ class ModeSwitchDialog(QDialog):
         
         # 验证温度和时间范围
         for i, (temp, time) in enumerate(self.current_segments):
-            if temp < -200 or temp > 2000:
+            if not math.isfinite(temp) or temp < -200 or temp > 2000:
                 QMessageBox.warning(self, "验证失败", 
                     f"程序段{i+1}温度超出范围（-200~2000℃）")
                 return
             
-            if time < -32768 or time > 32767:
+            if not math.isfinite(time) or not float(time).is_integer() or time < -32768 or time > 32767:
                 QMessageBox.warning(self, "验证失败", 
                     f"程序段{i+1}时间超出范围（-32768~32767分钟）")
                 return

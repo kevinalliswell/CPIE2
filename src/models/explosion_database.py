@@ -519,6 +519,9 @@ class ExplosionDatabase:
         Returns:
             是否成功
         """
+        if status not in ('completed', 'cancelled', 'error'):
+            self.logger.error("无效的实验结束状态: %s", status)
+            return False
         try:
             # 检查会话状态，避免重复完成
             session = self.get_session_by_id(session_id)
@@ -699,7 +702,12 @@ class ExplosionDatabase:
                         filename = os.path.basename(image_path)
                         full_path = os.path.join(max_flame_images_dir, filename)
                     
-                    if os.path.exists(full_path):
+                    managed_root = os.path.realpath(PathManager.get_max_flame_images_path())
+                    full_path = os.path.realpath(full_path)
+                    if os.path.commonpath([managed_root, full_path]) != managed_root:
+                        self.logger.warning(f"图片路径不在应用管理目录内，保留原文件: {image_path}")
+                        continue
+                    if os.path.isfile(full_path):
                         os.remove(full_path)
                         deleted_files_count += 1
                         self.logger.info(f"✓ 已删除图片文件: {full_path}")

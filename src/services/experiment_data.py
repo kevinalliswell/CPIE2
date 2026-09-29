@@ -29,8 +29,14 @@ class ReductionExperimentData(BaseExperimentData):
     铁矿石还原性实验 (GB/T 13241-2017) 数据模型
     """
     # 实验特定输入参数
-    initial_sample_weight_g: float # 样品初始重量 (克)
-    oxygen_content_percentage: float # 样品中总铁对应的氧含量或实验中用于计算失氧量的氧含量 (%)
+    initial_sample_weight_g: Optional[float] = None # 样品初始重量 (克)
+    oxygen_content_percentage: Optional[float] = None # 样品中总铁对应的氧含量或实验中用于计算失氧量的氧含量 (%)
+
+    def __post_init__(self):
+        # Python 3.9 has no kw_only dataclasses. Keep inherited defaults while
+        # rejecting omitted required inputs when the generated initializer runs.
+        if self.initial_sample_weight_g is None or self.oxygen_content_percentage is None:
+            raise TypeError('initial_sample_weight_g and oxygen_content_percentage are required')
 
     # 实验过程中记录的关键数据序列 (可选，也可以从raw_data_log中提取)
     timestamps: List[datetime] = field(default_factory=list)
@@ -58,7 +64,11 @@ class RDIExperimentData(BaseExperimentData):
     RDI: Reduction Degradation Index
     """
     # 实验特定输入参数
-    initial_sample_mass_g: float # 还原前试样总质量 (克)
+    initial_sample_mass_g: Optional[float] = None # 还原前试样总质量 (克)
+
+    def __post_init__(self):
+        if self.initial_sample_mass_g is None:
+            raise TypeError('initial_sample_mass_g is required')
 
     # 实验结束后测量的各粒级筛分质量
     sieve_data_g: Dict[str, float] = field(default_factory=dict)
@@ -96,7 +106,11 @@ class SwellingExperimentData(BaseExperimentData):
     SI: Swelling Index
     """
     # 实验特定输入参数
-    number_of_pellets_tested: int
+    number_of_pellets_tested: Optional[int] = None
+
+    def __post_init__(self):
+        if self.number_of_pellets_tested is None:
+            raise TypeError('number_of_pellets_tested is required')
 
     # 每个球团的详细数据
     pellets_data: List[PelletData] = field(default_factory=list)

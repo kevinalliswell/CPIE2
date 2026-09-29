@@ -45,6 +45,65 @@ def test_failed_database_delete_preserves_image(database):
     assert database.conn.execute('SELECT COUNT(*) FROM experiment_sessions WHERE id=?', (sid,)).fetchone()[0] == 1
 
 
+def test_deleting_session_preserves_images_outside_managed_directory(database, tmp_path):
+    image = tmp_path / 'external-original.png'
+    image.write_bytes(b'external original')
+    sid = database.start_experiment_session(experiment_name='External reference')
+    if isinstance(database, ExplosionDatabase):
+        database.add_test_round(sid, 1, 10, str(image))
+    else:
+        database.record_ignition_detection(sid, 1, 300, image_path=str(image))
+    assert database.delete_session(sid)
+    assert image.read_bytes() == b'external original'
+
+
+def test_successful_delete_cleans_only_managed_images(database):
+    from pathlib import Path
+    if isinstance(database, ExplosionDatabase):
+        image = Path(PathManager.get_max_flame_images_path('managed.png'))
+    else:
+        image = Path(PathManager.get_data_path('analysis_images')) / 'managed.png'
+        image.parent.mkdir(exist_ok=True)
+    image.write_bytes(b'managed result')
+    sid = database.start_experiment_session(experiment_name='Managed reference')
+    if isinstance(database, ExplosionDatabase):
+        database.add_test_round(sid, 1, 10, str(image))
+    else:
+        database.record_ignition_detection(sid, 1, 300, image_path=str(image))
+    assert database.delete_session(sid)
+    assert not image.exists()
+
+
+def test_ignition_delete_preserves_directory_outside_analysis_root(ignition):
+    from pathlib import Path
+    root = Path(PathManager.get_data_path('analysis_images'))
+    root.mkdir(exist_ok=True)
+    outside = root.parent / 'keep'
+    outside.mkdir()
+    image = outside / 'original.png'
+    image.write_bytes(b'retain')
+    sid = ignition.start_experiment_session(experiment_id='../keep', experiment_name='Invalid directory')
+    assert ignition.delete_session(sid)
+    assert image.read_bytes() == b'retain'
+
+
+def test_database_backup_rejects_live_source_path(database):
+    sid = database.start_experiment_session(experiment_name='Do not overwrite')
+    assert database.backup(database.db_path) is False
+    assert database.conn.execute('SELECT COUNT(*) FROM experiment_sessions WHERE id=?', (sid,)).fetchone()[0] == 1
+
+
+def test_finalizing_explosion_rejects_nonterminal_status(tmp_path):
+    database = ExplosionDatabase(str(tmp_path / 'explosion.db'))
+    try:
+        sid = database.start_experiment_session(experiment_name='Invalid status')
+        database.add_test_round(sid, 1, 10)
+        assert database.finalize_experiment(sid, status='running') is False
+        assert database.get_session_result(sid) is None
+    finally:
+        database.close()
+
+
 @pytest.fixture
 def ignition(tmp_path):
     db = IgnitionDatabase(str(tmp_path / 'ignition.db'))
@@ -92,6 +151,13 @@ def test_legacy_unassigned_samples_are_matched_in_utc(ignition):
     assert 0 <= rows[0]['elapsed_seconds'] < 5
 
 
+def test_ignition_order_by_is_limited_to_known_columns(ignition):
+    ignition.insert_ignition_data(200, 1, 2, 3, 4, 5, 6)
+    assert len(ignition.get_all_data(order_by='pv; DROP TABLE ignition_realtime_data', limit=1)) == 1
+    assert ignition.get_all_data(limit='1; DROP TABLE ignition_realtime_data') == []
+    assert len(ignition.get_all_data()) == 1
+
+
 def test_report_uses_session_identity_and_keeps_sparse_positions(qapp):
     from views.dialogs.generate_report_dialog import GenerateReportDialog
     rows = [{'elapsed_seconds': 0.5, 'sample1_temperature': 123}]
@@ -128,5 +194,19 @@ def test_pdf_exports_literal_user_markup(qapp, monkeypatch, tmp_path):
         assert any('&lt;b&gt;raw &amp; sample' in str(text) for text in texts)
         assert '&lt;b&gt;result' in texts
         assert 'A &amp; B<br/>&lt;raw&gt;' in texts
+    finally:
+        dialog.close()
+
+
+@pytest.mark.parametrize('conclusion', [None, ''])
+def test_missing_report_conclusion_never_claims_compliance(qapp, conclusion):
+    from PySide6.QtWidgets import QLabel
+    from views.dialogs.generate_report_dialog import GenerateReportDialog
+    dialog = GenerateReportDialog(1, 'explosion', {'conclusion': conclusion})
+    try:
+        section = dialog.create_conclusion_section()
+        texts = [label.text() for label in section.findChildren(QLabel)]
+        assert '实验结论未填写，待确认。' in texts
+        assert not any('符合标准' in text for text in texts)
     finally:
         dialog.close()

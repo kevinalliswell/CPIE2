@@ -271,8 +271,13 @@ class ExperimentDatabase:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
+                # 显式列出列名：旧数据库通过 ALTER TABLE 追加的 analysis_results_json
+                # 位于 created_at 之后，SELECT * 按固定下标读取会取到错误的列
                 cursor.execute("""
-                    SELECT * FROM experiments 
+                    SELECT experiment_id, experiment_name, sample_name, sample_weight,
+                           start_time, end_time, description, operator, experiment_type,
+                           analysis_results_json
+                    FROM experiments
                     WHERE experiment_id = ?
                 """, (experiment_id,))
                 row = cursor.fetchone()
@@ -347,7 +352,10 @@ class ExperimentDatabase:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT * FROM experiments 
+                    SELECT experiment_id, experiment_name, sample_name, sample_weight,
+                           start_time, end_time, description, operator, experiment_type,
+                           analysis_results_json
+                    FROM experiments
                     ORDER BY start_time DESC
                 """)
                 rows = cursor.fetchall()

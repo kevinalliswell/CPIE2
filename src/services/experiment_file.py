@@ -3,8 +3,10 @@ import os
 from datetime import datetime
 from typing import Dict, Optional, Any
 from dataclasses import asdict
-from .database import ExperimentData
-from ..utils.path_manager import PathManager
+# 与项目其余模块一致使用顶层绝对导入（src/ 位于 sys.path），
+# services 目录没有 __init__.py，相对导入会报 "attempted relative import beyond top-level package"
+from services.database import ExperimentData
+from utils.path_manager import PathManager
 import json
 
 

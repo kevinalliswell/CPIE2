@@ -99,10 +99,10 @@ class ExplosionDetailCard(BaseDetailCard):
             self.content_layout.addWidget(sample_info)
         
         # 测试结果
-        max_flame = data.get('max_flame_length')
-        if max_flame is not None:
+        avg_flame = data.get('avg_flame_length')
+        if avg_flame is not None:
             results_items = [
-                ("最大火焰长度", f"{max_flame:.1f} mm", "#00ff00"),
+                ("平均火焰长度", f"{avg_flame:.1f} mm", "#00ff00"),
             ]
             
             # 如果有爆炸性等级

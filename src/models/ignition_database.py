@@ -569,7 +569,12 @@ class IgnitionDatabase:
                         # 尝试相对于data目录的路径
                         full_path = PathManager.get_data_path(image_path)
                     
-                    if os.path.exists(full_path):
+                    managed_root = os.path.realpath(PathManager.get_data_path("analysis_images"))
+                    full_path = os.path.realpath(full_path)
+                    if os.path.commonpath([managed_root, full_path]) != managed_root:
+                        self.logger.warning(f"图片路径不在应用管理目录内，保留原文件: {image_path}")
+                        continue
+                    if os.path.isfile(full_path):
                         os.remove(full_path)
                         deleted_files_count += 1
                         self.logger.info(f"✓ 已删除图片文件: {full_path}")
@@ -1074,6 +1079,11 @@ class IgnitionDatabase:
             数据列表
         """
         try:
+            columns = {'id', 'timestamp', 'pv', 'ch1', 'ch2', 'ch3', 'ch4', 'ch5', 'ch6'}
+            if order_by not in columns:
+                order_by = 'timestamp'
+            if limit is not None and (type(limit) is not int or limit < 0):
+                return []
             order = 'ASC' if ascending else 'DESC'
             sql = f"""
                 SELECT id, timestamp, pv, ch1, ch2, ch3, ch4, ch5, ch6
@@ -1081,10 +1091,12 @@ class IgnitionDatabase:
                 ORDER BY {order_by} {order}
             """
             
-            if limit:
-                sql += f" LIMIT {limit}"
-            
-            self.cursor.execute(sql)
+            parameters = ()
+            if limit is not None:
+                sql += " LIMIT ?"
+                parameters = (limit,)
+
+            self.cursor.execute(sql, parameters)
             rows = self.cursor.fetchall()
             
             return [
