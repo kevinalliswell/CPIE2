@@ -78,8 +78,8 @@ class TangentAnalysisDialog(QDialog):
         
         # 说明
         desc = QLabel(
-            "基于 GB/T 18511-2017《煤的着火温度测定方法》\n"
-            "使用放热峰切线法精确测定着火点温度"
+            "根据温度曲线的放热峰切线交点估计着火温度\n"
+            "分析结果需结合原始实验记录复核"
         )
         desc.setAlignment(Qt.AlignCenter)
         desc.setStyleSheet("color: #999999; padding: 5px; font-size: 10pt;")
@@ -230,36 +230,44 @@ class TangentAnalysisDialog(QDialog):
     
     def _perform_analysis(self):
         """执行切线法分析"""
+        self.analysis_results.clear()
         try:
             # 从数据库读取完整数据
             session_data = self.db.get_session_temperature_data(self.session_id)
             
             if not session_data:
+                for channel in range(6):
+                    self._update_result_label(channel, None, "没有实验数据")
                 return
             
             # 构建时间和温度数组
-            time_seconds = np.array([record['elapsed_seconds'] for record in session_data])
+            time_seconds = np.array([record['elapsed_seconds'] for record in session_data], dtype=float)
+            if not np.all(np.isfinite(time_seconds)) or np.any(np.diff(time_seconds) <= 0):
+                raise ValueError("时间数据必须有限且严格递增")
             time_minutes = time_seconds / 60.0  # 转换为分钟
             
-            temp_arrays = [
-                np.array([record[f'sample{i+1}_temperature'] for record in session_data])
-                for i in range(6)
-            ]
-            
-            # 创建检测器
-            tangent_config = self.config.get('ignition_detection', {}).get('tangent_method', {})
+            # 创建检测器（兼容传入完整配置根节点或 ignition_experiment 子节点）
+            config = self.config or {}
+            config = config.get('ignition_experiment', config)
+            tangent_config = config.get('ignition_detection', {}).get('tangent_method', {})
             detector = TangentMethodDetector(tangent_config)
             
             # 对每个样品进行分析
             for i in range(6):
-                temp_array = temp_arrays[i]
+                try:
+                    temp_array = np.array(
+                        [record[f'sample{i+1}_temperature'] for record in session_data], dtype=float
+                    )
+                except (KeyError, TypeError, ValueError):
+                    self._update_result_label(i, None, "数据无效")
+                    continue
                 
                 # 检查数据有效性
                 if len(temp_array) < 50:
                     self._update_result_label(i, None, "数据不足")
                     continue
                 
-                if np.all(temp_array == 0) or np.max(temp_array) < 30:
+                if not np.all(np.isfinite(temp_array)) or np.max(temp_array) < 30:
                     self._update_result_label(i, None, "数据无效")
                     continue
                 
@@ -282,6 +290,9 @@ class TangentAnalysisDialog(QDialog):
                     self._plot_temperature_only(i, time_minutes, temp_array)
             
         except Exception:
+            for channel in range(6):
+                if channel not in self.analysis_results:
+                    self._update_result_label(channel, None, "实验数据无法分析")
             import traceback
             traceback.print_exc()
     
@@ -321,9 +332,9 @@ class TangentAnalysisDialog(QDialog):
                 f"<b>置信度:</b> <span style='color: {confidence_color};'>{confidence:.2f}</span>"
                 f"{confidence_warning}<br>"
                 f"<b>基线拟合:</b> y = {result['baseline_fit'][0]:.3f}x + {result['baseline_fit'][1]:.3f} "
-                f"(R={result.get('baseline_r', 0):.3f})<br>"
+                f"(R={result.get('r1', result.get('baseline_r', 0)):.3f})<br>"
                 f"<b>峰顶拟合:</b> y = {result['peak_fit'][0]:.3f}x + {result['peak_fit'][1]:.3f} "
-                f"(R={result.get('peak_r', 0):.3f})"
+                f"(R={result.get('r2', result.get('peak_r', 0)):.3f})"
             )
             label.setStyleSheet(f"""
                 font-size: 11pt;
@@ -474,6 +485,9 @@ class TangentAnalysisDialog(QDialog):
             )
             
             if ok:
+                if not np.isfinite(temp):
+                    QMessageBox.warning(self, "输入无效", "着火温度必须是有限数值")
+                    return
                 # 从数据库获取温度数据以找到对应时间
                 session_data = self.db.get_session_temperature_data(self.session_id)
                 
@@ -482,12 +496,16 @@ class TangentAnalysisDialog(QDialog):
                     return
                 
                 # 构建时间和温度数组
-                time_seconds = np.array([record['elapsed_seconds'] for record in session_data])
-                temp_array = np.array([record[f'sample{channel+1}_temperature'] for record in session_data])
+                time_seconds = np.array([record['elapsed_seconds'] for record in session_data], dtype=float)
+                temp_array = np.array([record[f'sample{channel+1}_temperature'] for record in session_data], dtype=float)
+                if (not np.all(np.isfinite(time_seconds)) or not np.all(np.isfinite(temp_array))
+                        or np.any(np.diff(time_seconds) <= 0)):
+                    QMessageBox.warning(self, "数据无效", "实验温度必须有限，时间必须有限且严格递增")
+                    return
                 
                 # 找到最接近输入温度的时间点
                 idx = np.argmin(np.abs(temp_array - temp))
-                ignition_time = time_seconds[idx]
+                ignition_time = float(time_seconds[idx])
                 
                 # 创建或更新结果
                 if current_result:
@@ -505,8 +523,8 @@ class TangentAnalysisDialog(QDialog):
                         'confidence': 1.0,
                         'baseline_fit': [0, 0],
                         'peak_fit': [0, 0],
-                        'baseline_r': 0,
-                        'peak_r': 0,
+                        'r1': 0,
+                        'r2': 0,
                         'baseline_range': [0, 0],
                         'peak_range': [0, 0]
                     }
@@ -744,4 +762,3 @@ class TangentAnalysisDialog(QDialog):
             import traceback
             traceback.print_exc()
             QMessageBox.critical(self, "错误", f"保存过程发生异常: {e}")
-
