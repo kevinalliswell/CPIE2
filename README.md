@@ -2,7 +2,9 @@
 
 CPIE 为 CPIE-3000A 实验设备提供 PySide6 桌面界面，包含着火点温度采集、爆炸实验时序、火焰分析、SQLite 历史记录以及 CSV、Excel、Word 导出。
 
-**当前为 1.2.1 收敛候选版本，尚未正式结项或发布。** 本轮正式交付目标为 Windows 10/11 64 位。macOS 已用于软件验证，不能据此认定 Windows 冻结包、实际仪表或相机已经验收；其他平台也未取得本轮交付验收结论。
+**v1.2.1 软件发布，真机验收待完成。** 维护者于 2026-09-30 决定先合并发版、暂时结束本阶段开发，后续再进行现场验收。目标平台为 Windows 10/11 64 位；自动化验证不代表仪表、相机和完整实验流程已通过验收。
+
+[下载与更新记录](https://github.com/kevinalliswell/CPIE2/releases/tag/v1.2.1) · [发布说明](docs/releases/v1.2.1.md) · [副屏开关待办 #8](https://github.com/kevinalliswell/CPIE2/issues/8)
 
 ## 从哪里开始
 
@@ -25,7 +27,7 @@ py -3.9 -m venv .venv
 .\.venv\Scripts\python.exe src/app.py
 ```
 
-请检出需要验证的明确提交或候选分支后安装依赖；默认分支不一定已包含本轮候选变更。上述命令无需激活虚拟环境。只运行应用安装 `requirements.txt`；需要测试或打包时，改装包含运行依赖的 `requirements-dev.txt`，并同样安装本地 Modbus 包。
+请检出明确的版本标签（本次为 `v1.2.1`）或需要验证的提交后安装依赖。上述命令无需激活虚拟环境。只运行应用安装 `requirements.txt`；需要测试或打包时，改装包含运行依赖的 `requirements-dev.txt`，并同样安装本地 Modbus 包。
 
 FlameKit 已移出本仓库，通过 `requirements.txt` 固定到外部源码提交 `f0c3e65c0c68b28e41b3e195764a8f0d0a1ab4bd`。不要再安装本地 `flame_package/`。访问失败时先配置该私有仓库的 Git 读取权限；不能通过删除依赖继续安装。本仓库 CI 已配置专用只读 Deploy Key，详见构建指南。
 
@@ -57,4 +59,4 @@ Windows 安装器以普通用户身份安装到 `%LOCALAPPDATA%\Programs\CPIE`�
 | `tests/`、`scripts/smoke_check.py` | 自动回归及无设备启动检查 |
 | `build_release.py`、`.github/workflows/` | 候选构建、Windows 验证及发布 |
 
-维护变更通过 PR 审查。发布前须核对最终源码 SHA、自动化证据、候选包 SHA256 和现场验收记录；不得沿用旧标签覆盖发布。本轮不会仅凭测试通过就把设备验收标为完成。
+维护变更通过 PR 审查。软件发布须核对最终源码 SHA、自动化证据及包 SHA256；现场验收状态独立记录，不得沿用旧标签覆盖发布。本轮不会仅凭测试通过就把设备验收标为完成。
