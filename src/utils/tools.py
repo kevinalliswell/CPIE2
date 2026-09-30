@@ -13,24 +13,22 @@ class Tools:
     def load_software_info():
         logger = LoggerManager.get_logger(__name__)
         info_path = PathManager.get_config_path("software.info")
-        if not os.path.exists(info_path):
-            logger.error(f"软件信息文件不存在: {info_path}")
-            # 兜底信息必须包含页面会直接索引的全部键（HomePage/AboutPage 使用 contact、website）
-            return {
-                "version": "1.0.0",
-                "author": "北京科技大学",
-                "description": "CPIE-3000A 煤粉着火点及爆炸性检测系统",
-                "release_date": "2025-11-21",
-                "copyright": "© 2025 北京科技大学",
-                "contact": "",
-                "website": "",
-                "build_date": "",
-                "python_version": "",
-                "platforms": [],
-            }
-        with open(info_path, "r", encoding="utf-8") as f:
-            logger.info(f"软件信息文件加载成功: {info_path}")
-            return json.load(f)
+        defaults = {
+            "version": "未知", "author": "北京科技大学",
+            "description": "CPIE-3000A 煤粉着火点及爆炸性检测系统",
+            "release_date": "未知", "copyright": "© 北京科技大学",
+            "contact": "", "website": "", "build_date": "未知",
+            "python_version": "未知", "platforms": [],
+        }
+        try:
+            with open(info_path, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+            if not isinstance(loaded, dict):
+                raise ValueError("软件信息必须为对象")
+            defaults.update(loaded)
+        except (OSError, ValueError) as exc:
+            logger.warning("软件信息不可用，使用默认字段: %s", exc)
+        return defaults
 
     @staticmethod
     def apply_stylesheet(theme="dark"):

@@ -6,6 +6,9 @@
 """
 
 
+import math
+
+
 class ExperimentValidator:
     """实验条件验证器"""
     
@@ -35,14 +38,14 @@ class ExperimentValidator:
             
             # 目标温度配置
             target_temp_config = control_conditions.get('target_temperature', {})
-            target_temp = target_temp_config.get('value', 0.0)
-            temp_tolerance = target_temp_config.get('tolerance', 0.0)
+            target_temp = target_temp_config.get('value')
+            temp_tolerance = target_temp_config.get('tolerance')
             temp_unit = target_temp_config.get('unit', '℃')
             
             # 目标压力配置
             target_pressure_config = control_conditions.get('target_pressure', {})
-            target_pressure = target_pressure_config.get('value', 0.0)
-            pressure_tolerance = target_pressure_config.get('tolerance', 0.0)
+            target_pressure = target_pressure_config.get('value')
+            pressure_tolerance = target_pressure_config.get('tolerance')
             pressure_unit = target_pressure_config.get('unit', 'kPa')
             
             # 获取当前温度PV值
@@ -51,7 +54,7 @@ class ExperimentValidator:
                 return False, "无法获取温控仪表数据，请检查设备连接状态！"
             
             current_temp = controller_data.get('pv')
-            if current_temp is None:
+            if not isinstance(current_temp, (int, float)) or isinstance(current_temp, bool) or not math.isfinite(current_temp):
                 return False, "无法获取当前温度值（PV），请检查温控仪表数据！"
 
             # 获取当前压力值
@@ -59,8 +62,18 @@ class ExperimentValidator:
             if pressure_data is None:
                 return False, "无法获取压力仪表数据，请检查设备连接状态！"
 
-            current_pressure = pressure_data.get('pressure', 0.0)
+            current_pressure = pressure_data.get('pressure')
+            if not isinstance(current_pressure, (int, float)) or isinstance(current_pressure, bool) or not math.isfinite(current_pressure):
+                return False, "压力数据无效，请检查压力仪表！"
             
+            # Validate targets as well as samples: infinite tolerances would
+            # otherwise admit any finite temperature/pressure.
+            values = (target_temp, temp_tolerance, target_pressure, pressure_tolerance)
+            if (not all(isinstance(value, (int, float)) and not isinstance(value, bool)
+                        and math.isfinite(value) for value in values)
+                    or temp_tolerance < 0 or pressure_tolerance < 0):
+                return False, '实验条件配置无效：目标值和容差必须为有限数，容差不能为负数'
+
             # 检查温度是否在范围内
             temp_min = target_temp - temp_tolerance
             temp_max = target_temp + temp_tolerance
@@ -97,4 +110,3 @@ class ExperimentValidator:
             
         except Exception as e:
             return False, f"检查实验条件时发生异常: {e}"
-

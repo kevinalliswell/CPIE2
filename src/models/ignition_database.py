@@ -69,7 +69,8 @@ class IgnitionDatabase:
             f"{safe_reason}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.bak"
         )
         backup_path = os.path.join(backup_dir, backup_name)
-        shutil.copy2(self.db_path, backup_path)
+        if not self.backup(backup_path):
+            raise sqlite3.DatabaseError("Unable to create a complete migration backup")
         self.logger.warning(f"⚠ 已创建迁移备份: {backup_path}")
         return backup_path
 
@@ -284,21 +285,14 @@ class IgnitionDatabase:
             raise
     
     # ==================== 增 (Create) ====================
-
+    
     @staticmethod
     def _now_timestamp() -> str:
-        """
-        本地时间戳字符串（固定带 6 位小数秒）。
-
-        实时数据必须与 experiment_sessions.start_time（datetime.now() 本地时间）使用同一时钟，
-        否则 elapsed_seconds 会偏差一个时区；固定带小数秒可与旧数据
-        （SQLite CURRENT_TIMESTAMP 写入，UTC、无小数秒）区分开来。
-        """
+        """Use the local session clock; microseconds distinguish legacy UTC rows."""
         return datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
 
     @staticmethod
     def _legacy_utc_to_local(timestamp: datetime) -> datetime:
-        """旧数据由 CURRENT_TIMESTAMP 写入（UTC），转换为本地 naive 时间以便与会话时间比较"""
         from datetime import timezone
         return timestamp.replace(tzinfo=timezone.utc).astimezone().replace(tzinfo=None)
 
@@ -575,7 +569,12 @@ class IgnitionDatabase:
                         # 尝试相对于data目录的路径
                         full_path = PathManager.get_data_path(image_path)
                     
-                    if os.path.exists(full_path):
+                    managed_root = os.path.realpath(PathManager.get_data_path("analysis_images"))
+                    full_path = os.path.realpath(full_path)
+                    if os.path.commonpath([managed_root, full_path]) != managed_root:
+                        self.logger.warning(f"图片路径不在应用管理目录内，保留原文件: {image_path}")
+                        continue
+                    if os.path.isfile(full_path):
                         os.remove(full_path)
                         deleted_files_count += 1
                         self.logger.info(f"✓ 已删除图片文件: {full_path}")
@@ -738,42 +737,30 @@ class IgnitionDatabase:
             
             rows = self.cursor.fetchall()
             
-            # 如果通过 session_id 查询没有结果，尝试通过时间范围查询（兼容旧数据）
+            # Legacy rows without a session ID may be recovered by time. Never
+            # substitute rows assigned to another experiment for an empty session.
             if not rows:
-                self.logger.debug(f"⚠ 通过 session_id 未找到数据，尝试通过时间范围查询...")
-                
-                # 获取会话的结束时间
-                self.cursor.execute("""
-                    SELECT end_time FROM experiment_sessions WHERE id = ?
-                """, (session_id,))
+                from datetime import timezone
+                self.cursor.execute(
+                    "SELECT end_time FROM experiment_sessions WHERE id = ?", (session_id,))
                 end_row = self.cursor.fetchone()
-                end_time_str = end_row[0] if end_row else None
-                
-                if end_time_str:
-                    # 会话已结束，查询开始到结束之间的数据
-                    self.cursor.execute("""
-                        SELECT 
-                            timestamp,
-                            pv,
-                            ch1, ch2, ch3, ch4, ch5, ch6
-                        FROM ignition_realtime_data
-                        WHERE timestamp >= ? AND timestamp <= ?
-                        ORDER BY timestamp ASC
-                    """, (start_time_str, end_time_str))
-                else:
-                    # 会话未结束，查询开始时间之后的所有数据
-                    self.cursor.execute("""
-                        SELECT 
-                            timestamp,
-                            pv,
-                            ch1, ch2, ch3, ch4, ch5, ch6
-                        FROM ignition_realtime_data
-                        WHERE timestamp >= ?
-                        ORDER BY timestamp ASC
-                    """, (start_time_str,))
-                
+                session_end_time = (datetime.fromisoformat(end_row[0])
+                                    if end_row and end_row[0] else datetime.now())
+                utc_start = session_start_time.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+                utc_end = session_end_time.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+                self.cursor.execute("""
+                    SELECT timestamp, pv, ch1, ch2, ch3, ch4, ch5, ch6
+                    FROM ignition_realtime_data
+                    WHERE session_id IS NULL AND (
+                        (instr(timestamp, '.') = 0 AND timestamp BETWEEN ? AND ?)
+                        OR (instr(timestamp, '.') > 0 AND timestamp BETWEEN ? AND ?)
+                    )
+                    ORDER BY timestamp ASC
+                """, (utc_start, utc_end,
+                      session_start_time.strftime('%Y-%m-%d %H:%M:%S.%f'),
+                      session_end_time.strftime('%Y-%m-%d %H:%M:%S.%f')))
                 rows = self.cursor.fetchall()
-            
+
             if not rows:
                 self.logger.warning(f"⚠ 会话 {session_id} 没有温度数据")
                 return []
@@ -783,9 +770,7 @@ class IgnitionDatabase:
             for row in rows:
                 timestamp_str = row[0]
                 
-                # 解析时间戳：新数据由 _now_timestamp() 写入（本地时间，带小数秒）；
-                # 旧数据由 SQLite CURRENT_TIMESTAMP 写入（UTC，无小数秒），需转换为本地时间，
-                # 否则 elapsed_seconds 会偏差一个时区（UTC+8 下约 -28800 秒）
+                # 解析时间戳，支持带毫秒或不带毫秒的格式
                 try:
                     timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S.%f')
                 except ValueError:
@@ -810,6 +795,7 @@ class IgnitionDatabase:
                     'sample6_temperature': float(row[7]) if row[7] is not None else 0.0
                 })
             
+            data.sort(key=lambda record: record["elapsed_seconds"])
             self.logger.info(f"✓ 成功读取会话 {session_id} 的 {len(data)} 条温度数据")
             return data
             
@@ -929,18 +915,44 @@ class IgnitionDatabase:
                 SET end_time = ?, status = ?
                 WHERE id = ?
             """, (datetime.now(), status, session_id))
-
+            
             self.conn.commit()
-            if self.cursor.rowcount > 0:
-                self.logger.info(f"✓ 实验会话已结束，ID: {session_id}, 状态: {status}")
-                return True
-            self.logger.error(f"✗ 未找到会话 ID: {session_id}")
-            return False
+            if self.cursor.rowcount == 0:
+                self.logger.error(f"✗ 未找到会话 ID: {session_id}")
+                return False
+            self.logger.info(f"✓ 实验会话已结束，ID: {session_id}, 状态: {status}")
+            return True
         except sqlite3.Error as e:
             self.logger.error(f"✗ 结束实验会话失败: {e}")
             self.conn.rollback()
             return False
     
+    def recover_interrupted_sessions(self) -> int:
+        """仅在启动取得单实例锁后调用，关闭上次进程遗留的未结束会话。
+
+        返回恢复数量；数据库失败抛出异常。结束时间是恢复检测时间，
+        不是实测结束时刻，不修改采样、检测结果或已经结束的会话。
+        """
+        detected_at = datetime.now()
+        note = (f"【启动恢复】恢复检测时间：{detected_at}。上次会话未正常结束，"
+                "标记为异常；end_time 为本次恢复检测时间，不是实测结束时间。")
+        try:
+            with self.conn:
+                cursor = self.conn.execute("""
+                    UPDATE experiment_sessions
+                    SET end_time = ?, status = 'error',
+                        description = CASE WHEN COALESCE(description, '') = '' THEN ?
+                            ELSE description || char(10) || ? END
+                    WHERE end_time IS NULL AND status IN ('running', 'prepared', 'error')
+                """, (detected_at, note, note))
+                recovered = cursor.rowcount
+            if recovered:
+                self.logger.warning(f"启动恢复了 {recovered} 个未正常结束的着火点会话")
+            return recovered
+        except sqlite3.Error:
+            self.logger.exception("恢复未结束的着火点会话失败")
+            raise
+
     # ==================== 查 (Read) ====================
     
     def get_data_by_id(self, record_id: int) -> Optional[Dict]:
@@ -1067,22 +1079,24 @@ class IgnitionDatabase:
             数据列表
         """
         try:
-            # 排序字段白名单，避免拼接任意 SQL
-            allowed_columns = {'id', 'timestamp', 'pv', 'ch1', 'ch2', 'ch3', 'ch4', 'ch5', 'ch6', 'session_id'}
-            if order_by not in allowed_columns:
-                self.logger.warning(f"⚠ 非法的排序字段: {order_by}，使用 timestamp")
+            columns = {'id', 'timestamp', 'pv', 'ch1', 'ch2', 'ch3', 'ch4', 'ch5', 'ch6'}
+            if order_by not in columns:
                 order_by = 'timestamp'
+            if limit is not None and (type(limit) is not int or limit < 0):
+                return []
             order = 'ASC' if ascending else 'DESC'
             sql = f"""
                 SELECT id, timestamp, pv, ch1, ch2, ch3, ch4, ch5, ch6
                 FROM ignition_realtime_data
                 ORDER BY {order_by} {order}
             """
-
-            if limit:
-                sql += f" LIMIT {int(limit)}"
             
-            self.cursor.execute(sql)
+            parameters = ()
+            if limit is not None:
+                sql += " LIMIT ?"
+                parameters = (limit,)
+
+            self.cursor.execute(sql, parameters)
             rows = self.cursor.fetchall()
             
             return [
@@ -1371,6 +1385,9 @@ class IgnitionDatabase:
             是否备份成功
         """
         try:
+            if os.path.realpath(backup_path) == os.path.realpath(self.db_path):
+                self.logger.error("备份路径不能与正在使用的数据库相同")
+                return False
             backup_dir = os.path.dirname(backup_path)
             if backup_dir:
                 os.makedirs(backup_dir, exist_ok=True)
@@ -1479,4 +1496,3 @@ if __name__ == "__main__":
     print("测试完成")
     print("="*50)
     db.close()
-

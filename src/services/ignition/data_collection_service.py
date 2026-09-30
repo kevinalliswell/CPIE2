@@ -54,7 +54,7 @@ class DataCollectionService:
             
             return success, is_first_time
             
-        except Exception:
+        except Exception as e:
             return False, False
     
     def reset_collect_flag(self):

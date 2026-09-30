@@ -407,14 +407,10 @@ class FlameAnalyzerWidget(QDialog):
             else:
                 self.list_widget.addItem(f"{result.filename}: 分析失败")
         
-        # 定位到最大值：statistics.max_flame_index 是"成功结果"子列表的下标，
-        # 列表中包含失败项时会错位，因此按文件名在完整结果列表中查找
-        max_row = next(
-            (i for i, r in enumerate(self.analysis_results)
-             if r.filename == self.statistics.max_flame_file),
-            self.statistics.max_flame_index
-        )
-        self.list_widget.setCurrentRow(max_row)
+        # 定位到最大值
+        maximum_row = next((index for index, result in enumerate(self.analysis_results)
+                            if result.success and result.filename == self.statistics.max_flame_file), -1)
+        self.list_widget.setCurrentRow(maximum_row)
         
         # 保存结果到字典
         max_flame_path = os.path.join(self.output_folder, self.statistics.max_flame_file)
@@ -549,13 +545,9 @@ class FlameAnalyzerWidget(QDialog):
         """退出按钮"""
         # 自动分析模式下，只要按钮启用就可以关闭
         self.close()
-
+    
     def reject(self):
-        """
-        Esc 键 / reject() 走 close() 路径。
-        QDialog.reject() 默认只隐藏窗口而不触发 closeEvent，会导致 window_closed
-        信号永不发出，爆炸页面收不到本轮分析结果而卡在"等待分析"状态。
-        """
+        """Route Escape and dialog rejection through result delivery and cleanup."""
         self.close()
 
     def closeEvent(self, event):

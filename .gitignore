@@ -26,6 +26,7 @@ MANIFEST
 # Virtual Environment
 .venv-cpie/
 .venv/
+.venv-*/
 venv/
 ENV/
 env/
@@ -114,6 +115,8 @@ backup/
 data/users.db
 
 # Test Coverage
+artifacts/
+.ci-dependencies/
 .coverage
 htmlcov/
 .pytest_cache/
@@ -177,4 +180,3 @@ $RECYCLE.BIN/
 tmp/
 temp/
 *.tmp
-

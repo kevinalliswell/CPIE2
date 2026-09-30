@@ -6,6 +6,7 @@
 """
 
 import copy
+import math
 import json
 from pathlib import Path
 from PySide6.QtWidgets import (
@@ -219,6 +220,8 @@ class ModeSwitchDialog(QDialog):
         col = item.column()
         try:
             value = float(item.text())
+            if not math.isfinite(value) or (col == 2 and not value.is_integer()):
+                raise ValueError('temperature must be finite and time must be an integer')
 
             if col == 1:  # 温度
                 self.current_segments[row][0] = value
@@ -229,7 +232,7 @@ class ModeSwitchDialog(QDialog):
             if self.preset_radios:
                 self.preset_radios[-1].setChecked(True)
 
-        except (ValueError, IndexError):
+        except (ValueError, OverflowError, IndexError):
             # 非法输入：把单元格恢复为当前有效值，避免表格显示与实际数据不一致
             try:
                 old_value = self.current_segments[row][0 if col == 1 else 1]
@@ -279,12 +282,12 @@ class ModeSwitchDialog(QDialog):
         
         # 验证温度和时间范围
         for i, (temp, time) in enumerate(self.current_segments):
-            if temp < -200 or temp > 2000:
+            if not math.isfinite(temp) or temp < -200 or temp > 2000:
                 QMessageBox.warning(self, "验证失败", 
                     f"程序段{i+1}温度超出范围（-200~2000℃）")
                 return
             
-            if time < -32768 or time > 32767:
+            if not math.isfinite(time) or not float(time).is_integer() or time < -32768 or time > 32767:
                 QMessageBox.warning(self, "验证失败", 
                     f"程序段{i+1}时间超出范围（-32768~32767分钟）")
                 return

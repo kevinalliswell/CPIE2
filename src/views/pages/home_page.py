@@ -1,7 +1,5 @@
 
 
-import os
-
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
 from PySide6.QtGui import QPixmap
 from PySide6.QtCore import Qt
@@ -24,9 +22,7 @@ class HomePage(QWidget):
 
         layout = QVBoxLayout(self)
         logo_label = QLabel()
-        # 使用 PathManager 解析资源路径：相对路径依赖当前工作目录，打包运行时会找不到图片
-        logo_path = PathManager.get_resources_path(os.path.join("images", "USTB_logo_horizontal.png"))
-        pixmap = QPixmap(logo_path)
+        pixmap = QPixmap(PathManager.get_resources_path("images/USTB_logo_horizontal.png"))
         if not pixmap.isNull():
             logo_label.setPixmap(pixmap.scaled(600, 600, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         logo_label.setAlignment(Qt.AlignCenter)

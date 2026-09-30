@@ -53,34 +53,36 @@ class FlameImageProcessor:
     def _setup_logger(self) -> logging.Logger:
         """设置日志"""
         logger = logging.getLogger('FlameImageProcessor')
-
-        # 该日志器为进程内共享，每轮实验都会新建处理器实例，
-        # 只在第一次安装处理器，避免文件句柄累积和日志重复输出
-        if self.config.logging_enabled and not logger.handlers:
+        
+        if self.config.logging_enabled:
             logger.setLevel(getattr(logging, self.config.log_level))
             
             # 确保日志目录存在
             log_file = self.config.log_file
             log_file.parent.mkdir(parents=True, exist_ok=True)
             
-            # 文件处理器
-            fh = logging.FileHandler(log_file, encoding='utf-8')
-            fh.setLevel(logging.DEBUG)
-            
-            # 控制台处理器
-            ch = logging.StreamHandler()
-            ch.setLevel(logging.INFO)
-            
-            # 格式化
             formatter = logging.Formatter(
                 '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
             )
+            file_path = os.path.abspath(log_file)
+            fh = next((h for h in logger.handlers
+                       if getattr(h, '_cpie_flame_kind', None) == 'file'
+                       and h.baseFilename == file_path), None)
+            if fh is None:
+                fh = logging.FileHandler(log_file, encoding='utf-8')
+                fh._cpie_flame_kind = 'file'
+                logger.addHandler(fh)
+            fh.setLevel(logging.DEBUG)
             fh.setFormatter(formatter)
+            ch = next((h for h in logger.handlers
+                       if getattr(h, '_cpie_flame_kind', None) == 'console'), None)
+            if ch is None:
+                ch = logging.StreamHandler()
+                ch._cpie_flame_kind = 'console'
+                logger.addHandler(ch)
+            ch.setLevel(logging.INFO)
             ch.setFormatter(formatter)
-            
-            logger.addHandler(fh)
-            logger.addHandler(ch)
-        
+
         return logger
     
     def get_image_files(self, folder_path: str) -> List[str]:

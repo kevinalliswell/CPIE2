@@ -16,7 +16,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
 
-def test_update_dict_in_place_keeps_nested_identity():
+def test_replace_config_in_place_keeps_nested_identity():
     from views.pages.config_page import ConfigPage
 
     config = {
@@ -33,7 +33,7 @@ def test_update_dict_in_place_keeps_nested_identity():
         "ui": {"update_interval": 250},
         "ignition_experiment": {"collect_start_temperature": 200.0},
     }
-    ConfigPage._update_dict_in_place(config, fresh)
+    ConfigPage._replace_config_in_place(config, fresh)
 
     assert config["explosion_experiment"] is explosion_ref
     assert config["explosion_experiment"]["test-rounds"] is rounds_ref

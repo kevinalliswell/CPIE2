@@ -80,7 +80,9 @@ def test_end_experiment_session_reports_missing_session(db):
 
 def test_delete_session_removes_files_only_after_db_delete(db, tmp_path):
     session_id = db.start_experiment_session(experiment_id="IGN-DEL", experiment_name="t")
-    image = tmp_path / "tangent_ch1.png"
+    from utils.path_manager import PathManager
+    image = Path(PathManager.get_data_path("analysis_images/tangent_ch1.png"))
+    image.parent.mkdir(parents=True, exist_ok=True)
     image.write_bytes(b"png")
     db.record_ignition_detection(session_id, 1, 350.0, detection_method="tangent", image_path=str(image))
 
@@ -138,11 +140,11 @@ def test_rise_rate_uses_real_sample_interval():
     history = {0: deque([300 + 0.05 * i for i in range(10)])}
     flags = [False]
 
-    # 未提供采样周期（旧行为）：按 0.2 s 换算得到 0.25 °C/s，误判着火
-    assert _service().check_ignition(history, flags, 0.2, 150.0) == [(0, history[0][-1], "温升速率")]
+    # 缺少真实采样时间时不得按 UI 刷新周期推断温升速率
+    assert _service().check_ignition(history, flags, 0.2, 150.0) == []
     # 提供真实采样周期 0.5 s：速率为 0.1 °C/s，低于阈值，不应判定着火
-    assert _service().check_ignition(history, flags, 0.2, 150.0, sample_interval=0.5) == []
+    assert _service().check_ignition(history, flags, 0.2, 150.0, sample_times=[0.5 * i for i in range(10)]) == []
 
     # 真正的快速温升（1 °C/s）在真实采样周期下仍能检出
     fast = {0: deque([300 + 0.5 * i for i in range(10)])}
-    assert _service().check_ignition(fast, [False], 0.2, 150.0, sample_interval=0.5) == [(0, fast[0][-1], "温升速率")]
+    assert _service().check_ignition(fast, [False], 0.2, 150.0, sample_times=[0.5 * i for i in range(10)]) == [(0, fast[0][-1], "温升速率")]

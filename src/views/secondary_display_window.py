@@ -39,7 +39,7 @@ class SecondaryDisplayWindow(QMainWindow):
         """解析副屏样式文件路径。"""
         return Path(PathManager.get_styles_path("secondary_display_light.qss"))
 
-    def __init__(self, explosion_controller=None, ignition_controller=None, ui_config=None, parent=None):
+    def __init__(self, explosion_controller=None, ignition_controller=None, parent=None, ui_config=None):
         super().__init__(parent)
 
         self.secondary_style_path = self._resolve_style_path()
@@ -47,8 +47,6 @@ class SecondaryDisplayWindow(QMainWindow):
         # 保存控制器引用
         self.explosion_controller = explosion_controller
         self.ignition_controller = ignition_controller
-        # UI 配置（experiment_config.yaml 的 ui 段，含 update_interval）
-        self.ui_config = ui_config or {}
 
         # 缩放比例（根据屏幕分辨率自动计算）
         self.scale_factor = 1.0
@@ -63,6 +61,11 @@ class SecondaryDisplayWindow(QMainWindow):
 
         # 初始化UI
         self._init_ui()
+        interval = (ui_config or {}).get('update_interval', 500)
+        if type(interval) is not int or not 0 < interval <= 2147483647:
+            interval = 500
+        self.explosion_panel.update_timer.setInterval(interval)
+        self.ignition_panel.update_timer.setInterval(interval)
 
         # 应用样式
         self._apply_styles()
@@ -151,10 +154,7 @@ class SecondaryDisplayWindow(QMainWindow):
             
             self.explosion_panel = ExplosionMonitorPanel()
             if self.explosion_controller:
-                self.explosion_panel.connect_controller_signals(
-                    self.explosion_controller,
-                    update_interval=self.ui_config.get('update_interval')
-                )
+                self.explosion_panel.connect_controller_signals(self.explosion_controller)
             explosion_layout.addWidget(self.explosion_panel)
             explosion_layout.addStretch()
             
@@ -186,10 +186,7 @@ class SecondaryDisplayWindow(QMainWindow):
             
             self.ignition_panel = IgnitionMonitorPanel()
             if self.ignition_controller:
-                self.ignition_panel.connect_controller_signals(
-                    self.ignition_controller,
-                    update_interval=self.ui_config.get('update_interval')
-                )
+                self.ignition_panel.connect_controller_signals(self.ignition_controller)
             ignition_layout.addWidget(self.ignition_panel)
             ignition_layout.addStretch()
             

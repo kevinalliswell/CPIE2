@@ -8,9 +8,14 @@ from PySide6.QtWidgets import (
     QLabel, QFrame
 )
 from PySide6.QtCore import Qt, QTimer
+import math
 
 from .base_monitor_panel import BaseMonitorPanel
 from .components import LargeMetricCard
+
+
+def _valid_temperature(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 class SampleTempItem(QFrame):
@@ -62,7 +67,7 @@ class SampleTempItem(QFrame):
     
     def set_temperature(self, temp: float):
         """设置温度"""
-        if temp is None or temp <= 0:
+        if not _valid_temperature(temp):
             self.temp_label.setText("--")
         else:
             self.temp_label.setText(f"{temp:.0f}")
@@ -158,7 +163,7 @@ class IgnitionMonitorPanel(BaseMonitorPanel):
         
         return widget
     
-    def connect_controller_signals(self, controller, update_interval=None):
+    def connect_controller_signals(self, controller):
         """连接控制器（使用定时器轮询，和主屏一样的方式）"""
         if controller is None:
             return
@@ -169,20 +174,17 @@ class IgnitionMonitorPanel(BaseMonitorPanel):
             self.manager = controller.manager
         
         # 启动定时器轮询（和主屏一样的方式）
-        # 更新间隔由副屏窗口从 ui 配置传入（控制器只持有实验段配置，其中没有 ui 信息）
-        try:
-            update_interval = int(update_interval) if update_interval else 500
-        except (TypeError, ValueError):
-            update_interval = 500
-
+        # 默认更新间隔500ms，可以从ui_config获取
+        update_interval = 500  # ms
+        if hasattr(controller, 'config') and controller.config:
+            ui_config = controller.config.get('ui_config', {})
+            update_interval = ui_config.get('update_interval', 500)
+        
         self.update_timer.start(update_interval)
         print(f"[着火点监控面板] 定时器轮询已启动，间隔: {update_interval}ms")
     
     def disconnect_controller_signals(self, controller):
         """断开控制器（停止定时器）"""
-        if controller is None:
-            return
-        
         # 停止定时器
         if self.update_timer:
             self.update_timer.stop()
@@ -191,6 +193,7 @@ class IgnitionMonitorPanel(BaseMonitorPanel):
         # 清空引用
         self.controller = None
         self.manager = None
+        self.reset()
     
     # ==================== 定时器轮询更新（和主屏一样的方式）====================
     
@@ -201,8 +204,7 @@ class IgnitionMonitorPanel(BaseMonitorPanel):
             self.manager = self.controller.manager
         
         if not self.manager:
-            # 如果manager还没有创建，说明设备可能还没连接
-            # 不输出日志，避免刷屏
+            self.reset()
             return
         
         # 更新温控仪表数据
@@ -214,31 +216,21 @@ class IgnitionMonitorPanel(BaseMonitorPanel):
     def _update_controller_data(self):
         """更新温控仪表数据（和主屏一样的方式）"""
         data = self.manager.get_latest_data('着火点-温控仪表')
-        if data:
-            pv = data.get('pv')
-            if pv is not None:
-                self.furnace_temp_card.set_value(pv, "°C")
-            else:
-                self.furnace_temp_card.set_value("--")
+        pv = data.get('pv') if isinstance(data, dict) else None
+        self.furnace_temp_card.set_value(pv if _valid_temperature(pv) else "--", "°C")
     
     def _update_temperature_data(self):
         """更新温度数据（和主屏一样的方式）"""
         data = self.manager.get_latest_data('着火点-温度模块')
-        if not data:
-            return
-        
-        channels = data.get('channels', [])
-        if len(channels) < 6:
-            return
+        channels = data.get('channels') if isinstance(data, dict) else None
+        if not isinstance(channels, (list, tuple)):
+            channels = []
         
         # 更新6路样品温度显示
-        for i in range(6):
-            if i < len(self.sample_items):
-                if i < len(channels):
-                    temp = channels[i].get('temperature')
-                    self.sample_items[i].set_temperature(temp)
-                else:
-                    self.sample_items[i].set_temperature(None)
+        for i, item in enumerate(self.sample_items):
+            channel = channels[i] if i < len(channels) else None
+            temp = channel.get('temperature') if isinstance(channel, dict) else None
+            item.set_temperature(temp)
     
     def reset(self):
         """重置面板"""
@@ -248,4 +240,3 @@ class IgnitionMonitorPanel(BaseMonitorPanel):
             item.set_temperature(None)
             item.set_ignited(False)
             self.sample_ignited[i] = False
-

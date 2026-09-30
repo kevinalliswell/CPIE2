@@ -99,6 +99,7 @@ class ControlPanelWidget(QGroupBox):
         
         # 完成实验按钮
         self.btn_finalize.setEnabled(state.can_finalize())
+        self.btn_finalize.setText("结束异常实验" if state == IgnitionExperimentState.ERROR else "完成实验")
         
         # 应用样式（需要重新设置样式表才能生效）
         self.btn_start.style().unpolish(self.btn_start)
@@ -124,4 +125,3 @@ class ControlPanelWidget(QGroupBox):
     def set_connect_button_enabled(self, enabled: bool):
         """设置连接按钮是否可用"""
         self.btn_connect.setEnabled(enabled)
-

@@ -8,8 +8,9 @@
 import logging
 import threading
 import json
+import math
 from datetime import datetime
-from PySide6.QtCore import QObject, Signal, QTimer, Slot, QMetaObject, Qt
+from PySide6.QtCore import QObject, Signal, QTimer, Qt, Slot
 
 from modbus_multi_device import ModbusDeviceManager
 from models.ignition_database import IgnitionDatabase
@@ -62,11 +63,16 @@ class IgnitionController(QObject):
         self.is_running = False
         self.current_session_id = None
         self.current_experiment_config = None
+        self._last_saved_sample_ids = None
+        self._shutdown_prepared = False
+        self._connect_thread = None
+        self._closing = False
         
         # 数据监控定时器（用于副屏实时数据推送）
         self.data_monitor_timer = QTimer(self)
         self.data_monitor_timer.timeout.connect(self._poll_device_data)
         self.data_monitor_timer.setInterval(500)  # 500ms更新一次
+        self.device_connected.connect(self._on_devices_connected, Qt.QueuedConnection)
         
         # 当前实验状态（使用枚举）
         self.current_state = IgnitionExperimentState.IDLE
@@ -77,32 +83,32 @@ class IgnitionController(QObject):
     
     def connect_devices(self):
         """连接设备（在后台线程中执行）"""
+        if self._connect_thread is not None and self._connect_thread.is_alive():
+            return
+        self._closing = False
         self.log_message.emit("正在连接设备...")
-        thread = threading.Thread(target=self._execute_connect, daemon=True)
-        thread.start()
+        self._connect_thread = threading.Thread(target=self._execute_connect, daemon=True)
+        self._connect_thread.start()
     
     def _execute_connect(self):
         """执行设备连接（后台线程）"""
         try:
+            if self.current_session_id is not None:
+                self.log_message.emit("✗ 请先结束当前实验会话")
+                return False
+            self._shutdown_prepared = False
             # 创建设备管理器
-            self.manager = ModbusDeviceManager(config_dict=self.config)
+            if self.manager is None:
+                self.manager = ModbusDeviceManager(config_dict=self.config)
             
             # 执行连接
             if self.manager.connect():
-                # 启动设备管理器（开始数据采集）
+                # 保留命令执行器，退出流程必须确认温控停止后才能断开串口。
                 if not self.manager.start():
-                    self.manager.disconnect()
-                    self.manager = None
-                    self.device_connected.emit(False, "设备管理器启动失败")
-                    self.logger.error("设备管理器启动失败")
-                    self.log_message.emit("✗ 设备管理器启动失败")
+                    # Keep the transport for a subsequent confirmed heater stop.
+                    raise RuntimeError("无法启动设备管理器")
+                if self._closing:
                     return
-
-                # 启动实时数据监控（用于UI显示和副屏）
-                # QTimer 只能在其所属线程启动，此处位于后台线程，需投递到控制器所在线程执行
-                QMetaObject.invokeMethod(
-                    self, "start_data_monitoring", Qt.ConnectionType.QueuedConnection
-                )
                 
                 # 更新状态
                 self._set_state(IgnitionExperimentState.CONNECTED)
@@ -120,6 +126,11 @@ class IgnitionController(QObject):
             self.logger.error(f"设备连接异常: {e}")
             self.log_message.emit(f"✗ 设备连接异常: {e}")
     
+    @Slot(bool, str)
+    def _on_devices_connected(self, success, message):
+        if success and not self._closing:
+            self.start_data_monitoring()
+
     def create_experiment(self, config: dict):
         """
         创建实验会话
@@ -136,8 +147,12 @@ class IgnitionController(QObject):
             bool: 创建是否成功
         """
         try:
+            if self.current_session_id is not None:
+                self.log_message.emit("✗ 请先结束当前实验会话")
+                return False
+            self._shutdown_prepared = False
             # 如果当前是COMPLETED或STOPPED状态，先转换到CONNECTED
-            if self.current_state in {IgnitionExperimentState.COMPLETED, IgnitionExperimentState.STOPPED}:
+            if self.current_state in {IgnitionExperimentState.COMPLETED, IgnitionExperimentState.STOPPED, IgnitionExperimentState.CANCELLED}:
                 self._set_state(IgnitionExperimentState.CONNECTED)
                 self.logger.debug(f"状态转换: {self.current_state.value} -> CONNECTED (准备创建新实验)")
             
@@ -195,6 +210,14 @@ class IgnitionController(QObject):
                 self.log_message.emit("✗ 设备未连接！")
                 return False
             
+            controller_data = self.manager.get_latest_data('着火点-温控仪表') or {}
+            sample_data = self.manager.get_latest_data('着火点-温度模块') or {}
+            channels = sample_data.get('channels') or []
+            if (not self._valid_temperature(controller_data.get('pv'))
+                    or len(channels) < 6
+                    or not all(isinstance(channel, dict) and self._valid_temperature(channel.get('temperature')) for channel in channels[:6])):
+                self.log_message.emit("✗ 请等待所有温度设备提供有效实时数据")
+                return False
             # 检查状态转换是否合法
             if not self.current_state.can_start():
                 self.log_message.emit(f"✗ 当前状态不允许启动实验: {self.current_state.description()}")
@@ -211,10 +234,10 @@ class IgnitionController(QObject):
             self.log_message.emit("启动实验...")
             
             # 更新会话状态
+            if not self.db.update_session(self.current_session_id, status="running"):
+                self.log_message.emit("✗ 无法保存实验启动状态")
+                return False
             self._set_state(IgnitionExperimentState.RUNNING)
-            db_status = self.current_state.to_db_status()
-            if db_status:
-                self.db.update_session(self.current_session_id, status=db_status)
             self.log_message.emit(f"✓ 实验会话已启动 (ID: {self.current_session_id})")
             
             # 更新运行标志
@@ -320,7 +343,29 @@ class IgnitionController(QObject):
         self.current_experiment_config = None
         self.is_running = False
         self.ignited_samples = [False] * self.num_channels
+        self._last_saved_sample_ids = None
         self.logger.info("实验会话已重置")
+
+    def finalize_experiment(self):
+        """Persist successful or failed acquisition before releasing its session."""
+        if self.current_session_id is None or self.current_state not in {
+            IgnitionExperimentState.STOPPED, IgnitionExperimentState.ERROR,
+        }:
+            return False
+        failed = self.current_state == IgnitionExperimentState.ERROR
+        if self.manager is not None and self.manager.started:
+            if not self.manager.shutdown_control(
+                '着火点-温控仪表', {'set_run_status': {'status': 'StoP'}},
+            ):
+                self.log_message.emit("✗ 温控器停止未确认，当前会话已保留")
+                return False
+        if not self.db.end_experiment_session(self.current_session_id, status="error" if failed else "completed"):
+            return False
+        self._set_state(IgnitionExperimentState.CANCELLED if failed else IgnitionExperimentState.COMPLETED)
+        self.reset_session()
+        if self.manager is not None and self.manager.started:
+            self.manager.resume_controls('着火点-温控仪表')
+        return True
     
     def control_temperature_controller(self, action: str):
         """
@@ -337,12 +382,15 @@ class IgnitionController(QObject):
             return False
         
         try:
-            self.manager.send_control(
+            self._shutdown_prepared = False
+            success = self.manager.send_control_and_wait(
                 device_name='着火点-温控仪表',
                 control_data={'set_run_status': {'status': action}},
-                priority='high'
             )
-            self.log_message.emit(f"发送控制命令: {action}")
+            if not success:
+                self.log_message.emit(f"✗ 温控器未确认执行: {action}")
+                return False
+            self.log_message.emit(f"温控器已执行: {action}")
             self.logger.info(f"控制温控器: {action}")
             return True
         except Exception as e:
@@ -372,19 +420,20 @@ class IgnitionController(QObject):
             for i, (temp, time_val) in enumerate(segments):
                 self.log_message.emit(f"  程序段{i+1}: 温度={temp}°C, 时间={time_val}分钟")
             
-            self.manager.send_control(
+            self._shutdown_prepared = False
+            success = self.manager.send_control_and_wait(
                 device_name='着火点-温控仪表',
                 control_data={
                     'set_program_segments': {
                         'segments': segments
                     }
                 },
-                priority='high'
+                timeout=30.0,
             )
-
-            # 不再阻塞等待设备回写，直接返回并记录命令已发送
-            self.log_message.emit("✓ 温控曲线设置命令已发送")
-            self.log_message.emit("提示：请检查温控仪表是否已接收到程序段参数")
+            if not success:
+                self.log_message.emit("✗ 温控曲线未确认写入，请检查设备")
+                return False
+            self.log_message.emit("✓ 温控曲线已写入并确认")
             self.logger.info(f"温控曲线设置完成: {segments}")
             return True
         except Exception as e:
@@ -418,9 +467,13 @@ class IgnitionController(QObject):
             temp_module_data = self.manager.get_latest_data('着火点-温度模块')
             
             if not controller_data or not temp_module_data:
+                self._fail_acquisition("设备数据已失效，采集已停止，请检查连接")
                 return False
             
-            pv = controller_data.get('pv', 0.0)
+            pv = controller_data.get('pv')
+            if not self._valid_temperature(pv):
+                self._fail_acquisition("炉温数据无效，采集已停止")
+                return False
             
             # 条件2: 检查温度上限（自动停止条件）
             collect_end_temp = self.config.get('collect_end_temperature', 500.0)
@@ -458,37 +511,52 @@ class IgnitionController(QObject):
             if pv < collect_start_temp:
                 return False  # 温度未达到，不采集
             
-            channels = temp_module_data.get('channels', [])
+            channels = temp_module_data.get('channels') or []
             
-            if len(channels) < 6:
-                self.log_message.emit("✗ 温度通道数据不完整")
+            temperatures = [channel.get('temperature') if isinstance(channel, dict) else None for channel in channels[:6]]
+            if len(temperatures) != 6 or not all(self._valid_temperature(value) for value in temperatures):
+                self._fail_acquisition("温度通道数据不完整或无效，采集已停止")
                 return False
-            
-            # 提取通道温度
-            ch1 = channels[0].get('temperature', 0.0)
-            ch2 = channels[1].get('temperature', 0.0)
-            ch3 = channels[2].get('temperature', 0.0)
-            ch4 = channels[3].get('temperature', 0.0)
-            ch5 = channels[4].get('temperature', 0.0)
-            ch6 = channels[5].get('temperature', 0.0)
+
+            sample_ids = (controller_data.get('sample_id'), temp_module_data.get('sample_id'))
+            if not all(isinstance(value, int) and value > 0 for value in sample_ids):
+                self._fail_acquisition("缺少有效采样标识，采集已停止")
+                return False
+            if self._last_saved_sample_ids is not None and any(
+                current <= previous for current, previous in zip(sample_ids, self._last_saved_sample_ids)
+            ):
+                return False
             
             # 写入数据库（关联会话ID）
             record_id = self.db.insert_ignition_data(
-                pv, ch1, ch2, ch3, ch4, ch5, ch6,
+                pv, *temperatures,
                 session_id=self.current_session_id  # 关联会话
             )
             
             if record_id > 0:
+                self._last_saved_sample_ids = sample_ids
                 self.logger.debug(f"数据已写入数据库 (ID: {record_id}, Session: {self.current_session_id})")
                 return True
             else:
-                self.log_message.emit("✗ 数据写入失败")
+                self._fail_acquisition("数据写入失败，采集已停止")
                 return False
                 
         except Exception as e:
-            self.log_message.emit(f"✗ 采集数据失败: {e}")
+            self._fail_acquisition(f"采集数据失败: {e}")
             self.logger.error(f"采集数据失败: {e}")
             return False
+
+    @staticmethod
+    def _valid_temperature(value):
+        return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+    def _fail_acquisition(self, message):
+        self.is_running = False
+        self._set_state(IgnitionExperimentState.ERROR)
+        self.log_message.emit(f"✗ {message}")
+        self.experiment_stopped.emit()
+        if self.db and self.current_session_id is not None:
+            self.db.update_session(self.current_session_id, status="error")
     
     def get_latest_controller_data(self):
         """
@@ -542,15 +610,13 @@ class IgnitionController(QObject):
             'experiment_config': self.current_experiment_config,
             'device_connected': self.manager is not None and bool(getattr(self.manager, 'connected', False))
         }
-
-    @Slot()
+    
     def start_data_monitoring(self):
         """启动数据监控（用于副屏实时数据推送）"""
         if not self.data_monitor_timer.isActive():
             self.data_monitor_timer.start()
             self.logger.info("数据监控已启动")
-
-    @Slot()
+    
     def stop_data_monitoring(self):
         """停止数据监控"""
         if self.data_monitor_timer.isActive():
@@ -581,18 +647,20 @@ class IgnitionController(QObject):
             # 获取样品温度数据
             temp_module_data = self.get_latest_temperature_data()
             if temp_module_data:
-                channels = temp_module_data.get('channels', [])
+                channels = temp_module_data.get('channels') or []
                 # 先构建完整的样品温度快照，避免在循环中途发出不完整的列表
                 sample_temps = []
                 for i in range(self.num_channels):
                     if i < len(channels):
-                        sample_temps.append(channels[i].get('temperature', 0.0))
+                        channel = channels[i]
+                        value = channel.get('temperature') if isinstance(channel, dict) else None
+                        sample_temps.append(value if self._valid_temperature(value) else None)
                     else:
-                        sample_temps.append(0.0)
+                        sample_temps.append(None)
 
                 # 在完整快照上进行着火检测
                 for i, temp in enumerate(sample_temps):
-                    if temp >= self.ignition_threshold and not self.ignited_samples[i]:
+                    if self.is_running and temp is not None and temp >= self.ignition_threshold and not self.ignited_samples[i]:
                         self.ignited_samples[i] = True
                         self.ignition_detected.emit(self.ignition_threshold, list(sample_temps))
                         self.logger.info(f"检测到样品{i+1}着火: {temp}°C")
@@ -639,46 +707,62 @@ class IgnitionController(QObject):
         enum_state = state_map.get(new_state, self.current_state)
         self._set_state(enum_state)
     
-    def cleanup(self):
-        """
-        清理资源：停止定时器、停止设备管理器、关闭数据库连接
-        """
+    def prepare_shutdown(self):
+        """Confirm heater stop and persist an interrupted session before closing resources."""
+        if self._shutdown_prepared:
+            return True
+        self._closing = True
         try:
-            self.logger.info("开始清理着火点控制器资源...")
-            
-            # 停止实验
+            if self._connect_thread is not None and self._connect_thread is not threading.current_thread():
+                self._connect_thread.join(5.0)
+                if self._connect_thread.is_alive():
+                    self.log_message.emit("✗ 设备连接尚未结束，请稍后重试退出")
+                    return False
             if self.is_running:
                 self.stop_experiment()
-            
-            # 停止数据监控定时器
-            if hasattr(self, 'data_monitor_timer'):
-                self.data_monitor_timer.stop()
-                self.logger.debug("数据监控定时器已停止")
-            
-            # 停止设备管理器并关闭串口（disconnect 内部会先 stop，未连接时为空操作）
-            if self.manager:
-                try:
-                    if hasattr(self.manager, 'disconnect'):
-                        self.manager.disconnect()
-                    elif hasattr(self.manager, 'stop'):
-                        self.manager.stop()
-                    self.logger.debug("设备管理器已停止")
-                except Exception as e:
-                    self.logger.error(f"停止设备管理器失败: {e}")
-                finally:
-                    self.manager = None
-            
-            # 关闭数据库连接
-            if self.db:
-                try:
-                    self.db.close()
-                    self.logger.debug("数据库连接已关闭")
-                except Exception as e:
-                    self.logger.error(f"关闭数据库连接失败: {e}")
-                finally:
-                    self.db = None
-            
-            self.logger.info("着火点控制器资源清理完成")
-        except Exception as e:
-            self.logger.error(f"清理资源时出错: {e}")
+            self.data_monitor_timer.stop()
+            uncontacted = (self.manager is not None
+                           and getattr(self.manager, 'can_close_without_device_shutdown', lambda: False)() is True)
+            if uncontacted:
+                self.log_message.emit("未收到任何设备响应，且未发出控制指令；退出时无需硬件关断确认")
+            if self.manager is not None and not uncontacted and self.manager.connected and not self.manager.started:
+                if self.manager.start() is False:
+                    self.log_message.emit("✗ 无法启动设备停止流程，请重试退出")
+                    return False
+            if self.manager is not None and not uncontacted and self.manager.started:
+                if not self.manager.shutdown_control(
+                    device_name='着火点-温控仪表',
+                    control_data={'set_run_status': {'status': 'StoP'}},
+                ):
+                    self.log_message.emit("✗ 温控器停止未确认，请检查设备后重试退出")
+                    return False
+            if self.current_session_id is not None:
+                status = "error" if self.current_state == IgnitionExperimentState.ERROR else "cancelled"
+                if not self.db.end_experiment_session(self.current_session_id, status=status):
+                    self.log_message.emit("✗ 实验结束状态保存失败，请重试退出")
+                    return False
+                if status == "cancelled":
+                    self._set_state(IgnitionExperimentState.CANCELLED)
+                self.reset_session()
+            self._shutdown_prepared = True
+            return True
+        except Exception as error:
+            self.logger.error("准备退出失败: %s", error)
+            return False
 
+    def cleanup(self):
+        """Close resources only after session and device shutdown are confirmed."""
+        if not self.prepare_shutdown():
+            return False
+        try:
+            if self.manager is not None:
+                if self.manager.disconnect() is False:
+                    return False
+                self.manager = None
+            if self.db is not None:
+                self.db.close()
+                self.db = None
+            return True
+        except Exception as error:
+            self.logger.error("清理资源失败: %s", error)
+            return False

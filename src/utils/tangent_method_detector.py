@@ -2,9 +2,10 @@
 # -*- coding: utf-8 -*-
 """
 放热峰切线法着火点检测器 V3
-基于 GB/T 18511-2017《煤的着火温度测定方法》及 docs/放热峰切线法实现建议.md
+对温度曲线拟合基线与最大温升速率处的切线，估计交点。
+数值回归验证不代表标准认证；实验结果仍需结合原始记录复核。
 
-算法流程（与规范文档一致）:
+算法流程:
 1. 温度曲线平滑（Savitzky-Golay）
 2. 计算温升速率 dT/dt 及其加速度 d²T/dt²
 3. 峰顶 = 温升速率最大值点（放热反应最剧烈处）
@@ -108,23 +109,12 @@ class TangentMethodDetector:
         try:
             time_array = np.asarray(time_data, dtype=np.float64)
             temp_array = np.asarray(temp_data, dtype=np.float64)
-            input_length = len(time_array)
-
-            if len(time_array) != len(temp_array):
-                self.logger.error(f"时间和温度数据长度不匹配: {len(time_array)} vs {len(temp_array)}")
-                return None
-
-            # 旧数据的时间戳只有秒级精度而采样周期为 0.5 s，会出现相同的时间：先合并同一时刻的采样
-            prepared = self._coalesce_duplicate_times(time_array, temp_array)
-            if prepared is None:
-                return None
-            time_array, temp_array, group_start = prepared
 
             if not self._validate_data(time_array, temp_array):
                 return None
 
             temp_smooth = self._smooth_data(temp_array)
-            if temp_smooth is None:
+            if temp_smooth is None or not np.all(np.isfinite(temp_smooth)):
                 return None
 
             rate, rate_smooth, accel = self._derivatives(time_array, temp_smooth)
@@ -217,6 +207,11 @@ class TangentMethodDetector:
             }
             confidence = self._calculate_confidence(r1, r2, k1, k2, method_scores, baseline_end - baseline_start)
 
+            if not np.all(np.isfinite([k1, b1, k2, b2, r1, r2, confidence,
+                                       *method_scores.values()])):
+                self.logger.warning("拟合结果包含非有限数值")
+                return None
+
             result = {
                 'ignition_temp': float(ignition_temp),
                 'ignition_time': float(ignition_time),
@@ -232,9 +227,6 @@ class TangentMethodDetector:
                 'r1': float(r1),
                 'r2': float(r2),
             }
-            if group_start is not None:
-                # 索引换算回调用方传入的原始数组（调用方用它们在原始曲线上绘制拟合区间）
-                self._map_indices_to_input(result, group_start, input_length)
 
             self.logger.info(
                 f"检测成功: 着火温度={ignition_temp:.1f}°C, 时间={ignition_time:.1f}s, "
@@ -249,16 +241,21 @@ class TangentMethodDetector:
     # ------------------------------------------------------------------ 预处理
     def _validate_data(self, time_array, temp_array):
         """数据验证"""
+        if time_array.ndim != 1 or temp_array.ndim != 1:
+            self.logger.error("时间和温度数据必须是一维数组")
+            return False
         if len(time_array) < self.config['min_data_points']:
             self.logger.warning(f"数据点太少: {len(time_array)} < {self.config['min_data_points']}")
             return False
         if len(time_array) != len(temp_array):
             self.logger.error(f"时间和温度数据长度不匹配: {len(time_array)} vs {len(temp_array)}")
             return False
-        if np.any(np.isnan(temp_array)) or np.any(np.isinf(temp_array)):
-            self.logger.error("温度数据包含NaN或Inf")
+        if not np.all(np.isfinite(time_array)) or not np.all(np.isfinite(temp_array)):
+            self.logger.error("时间或温度数据包含NaN或Inf")
             return False
-        if np.any(np.diff(time_array) <= 0):  # 重复时间已在 _coalesce_duplicate_times 中合并
+        with np.errstate(over='ignore', invalid='ignore'):
+            intervals = np.diff(time_array)
+        if not np.all(np.isfinite(intervals)) or np.any(intervals <= 0):
             self.logger.error("时间数据必须严格递增")
             return False
         total_temp_rise = float(np.max(temp_array) - temp_array[0])
@@ -266,49 +263,6 @@ class TangentMethodDetector:
             self.logger.warning(f"温升不足: {total_temp_rise:.1f}°C < {self.config['min_temp_rise']}°C")
             return False
         return True
-
-    def _coalesce_duplicate_times(self, time_array, temp_array):
-        """
-        合并时间相同的相邻采样（温度取平均）。
-
-        返回 (time, temp, group_start)：没有重复时 group_start 为 None；有重复时 group_start[i]
-        为合并后第 i 个点在原始数组中的起始下标。时间倒序或含 NaN/Inf 时返回 None。
-        """
-        if len(time_array) < 2:
-            return time_array, temp_array, None
-        if not np.all(np.isfinite(time_array)):
-            self.logger.error("时间数据包含NaN或Inf")
-            return None
-        diffs = np.diff(time_array)
-        if np.any(diffs < 0):
-            self.logger.error("时间数据必须按时间先后排列")
-            return None
-        if not np.any(diffs == 0):
-            return time_array, temp_array, None
-
-        group_start = np.flatnonzero(np.concatenate(([True], diffs > 0)))
-        counts = np.diff(np.append(group_start, len(time_array)))
-        merged_temp = np.add.reduceat(temp_array, group_start) / counts
-        merged_time = time_array[group_start]
-        self.logger.info(
-            f"合并重复时间戳: {len(time_array)} 个采样 -> {len(merged_time)} 个时间点"
-        )
-        return merged_time, merged_temp, group_start
-
-    @staticmethod
-    def _map_indices_to_input(result, group_start, input_length):
-        """把基于合并后数组的索引换算为原始数组索引（区间为左闭右开）"""
-        groups = len(group_start)
-
-        def bound(index):
-            return int(group_start[index]) if index < groups else int(input_length)
-
-        for key in ('inflection_idx', 'onset_idx', 'peak_idx'):
-            result[key] = int(group_start[result[key]])
-        for key in ('baseline_range', 'peak_range'):
-            start, end = result[key]
-            result[key] = (bound(start), bound(end))
-        return result
 
     def _smooth_data(self, temp_array):
         """温度数据平滑"""
@@ -335,6 +289,9 @@ class TangentMethodDetector:
             sigma = float(self.config.get('rate_smooth_sigma', 2.0))
             rate_smooth = gaussian_filter1d(rate, sigma=sigma) if sigma > 0 else rate.copy()
             accel = np.gradient(rate_smooth, time_array)
+            if not all(np.all(np.isfinite(values)) for values in (rate, rate_smooth, accel)):
+                self.logger.warning("数据跨度或采样间隔导致导数不可表示")
+                return None, None, None
             return rate, rate_smooth, accel
         except Exception as e:
             self.logger.error(f"计算导数失败: {e}")
@@ -560,6 +517,9 @@ class TangentMethodDetector:
     def _validate_ignition_point(self, ignition_time, ignition_temp, time_array, temp_smooth,
                                  baseline_start, peak_idx):
         """交点必须位于基线区间起点与峰顶之间，温度在数据范围内"""
+        if not np.isfinite(ignition_time) or not np.isfinite(ignition_temp):
+            self.logger.warning("切线交点不是有限数值")
+            return False
         if ignition_time < time_array[baseline_start] or ignition_time > time_array[peak_idx]:
             self.logger.warning(
                 f"切线交点不在基线区间与峰顶之间: {ignition_time:.1f}s "

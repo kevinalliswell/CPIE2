@@ -32,8 +32,8 @@ class BaseMonitorPanel(QWidget):
         """初始化UI - 子类必须实现"""
         raise NotImplementedError("子类必须实现setup_ui方法")
     
-    def connect_controller_signals(self, controller, update_interval=None):
-        """连接控制器信号 - 子类必须实现（update_interval: 轮询间隔 ms，来自 ui 配置）"""
+    def connect_controller_signals(self, controller):
+        """连接控制器信号 - 子类必须实现"""
         raise NotImplementedError("子类必须实现connect_controller_signals方法")
     
     def disconnect_controller_signals(self, controller):

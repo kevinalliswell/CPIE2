@@ -86,7 +86,29 @@ def test_password_manager_survives_corrupt_config(tmp_path, password_manager_cls
 
     manager = password_manager_cls(config_file=str(config_file))
 
-    assert manager.verify_password(password_manager_cls.DEFAULT_PASSWORD)
+    assert not manager.verify_password(password_manager_cls.DEFAULT_PASSWORD)
+
+
+@pytest.mark.parametrize('config', [{}, {'admin_password_hash': 'invalid'}, {'admin_password_hash': 'pbkdf2_sha256$broken', 'admin_password': '1952'}])
+def test_invalid_existing_config_never_enables_default(tmp_path, password_manager_cls, config):
+    config_file = tmp_path / 'password.json'
+    config_file.write_text(json.dumps(config))
+    assert not password_manager_cls(str(config_file)).verify_password('1952')
+
+
+def test_failed_password_save_does_not_change_active_password(tmp_path, password_manager_cls, monkeypatch):
+    import os
+    config_file = tmp_path / 'password.json'
+    manager = password_manager_cls(str(config_file))
+    assert manager.change_password('1952', 'first-secret')
+    saved = config_file.read_bytes()
+    def fail_replace(*args):
+        raise OSError('simulated read-only destination')
+    monkeypatch.setattr(os, 'replace', fail_replace)
+    assert not manager.change_password('first-secret', 'second-secret')
+    assert config_file.read_bytes() == saved
+    assert manager.verify_password('first-secret')
+    assert not manager.verify_password('second-secret')
 
 
 # ---------------------------------------------------------------- UserManager

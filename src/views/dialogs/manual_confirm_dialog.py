@@ -249,9 +249,9 @@ class ManualConfirmDialog(QDialog):
         progress_dialog.setValue(0)
         
         try:
-            # 清空分析文件夹
+            # 清空分析文件夹（含 FlameKit 写出标注图的 annotated/ 子目录）
             if Path(self.temp_analyzed_dir).exists():
-                for file in Path(self.temp_analyzed_dir).glob('*'):
+                for file in Path(self.temp_analyzed_dir).glob('**/*'):
                     if file.is_file():
                         file.unlink()
             
@@ -275,11 +275,18 @@ class ManualConfirmDialog(QDialog):
             if not analyzed_image_paths:
                 raise Exception(f"没有找到有效的图像文件！\n检查路径:\n{self.temp_captures_dir}")
             
-            # 使用 FlameAnalyzer 批量分析（会直接在复制的图片上标注）
+            # 使用 FlameAnalyzer 批量分析
             result_data, max_img_path = self.flame_analyzer.batch_analyze(
                 analyzed_image_paths,
                 save_annotated=True
             )
+
+            # FlameKit f0c3e65 起标注图不再覆盖原图，而是写入 <目录>/annotated/，
+            # 原始帧保持未标注以便重复分析。展示与留档仍使用标注版本；
+            # 取不到标注图时回退到原图，不让本轮因此失败。
+            annotated_map = getattr(self.flame_analyzer, 'last_annotated_paths', None) or {}
+            display_image_paths = [annotated_map.get(path, path) for path in analyzed_image_paths]
+            annotated_max_path = result_data.get('annotated_path') or annotated_map.get(max_img_path, max_img_path)
             
             # 分析完成，恢复进度条
             progress_dialog.setRange(0, 100)
@@ -287,7 +294,7 @@ class ManualConfirmDialog(QDialog):
             
             # 保存分析结果
             self.analysis_result = result_data
-            self.max_flame_image_path = max_img_path  # 这是 temp_analyzed_dir 中的路径
+            self.max_flame_image_path = annotated_max_path  # temp_analyzed_dir 中的标注图路径
             self.is_analyzed = True
             
             # 更新结果显示
@@ -299,15 +306,15 @@ class ManualConfirmDialog(QDialog):
             self.width_label.setText(f"最大火焰宽度: {max_width:.2f} mm")
             self.area_label.setText(f"火焰面积: {area:.2f} mm²")
             
-            # 分析后的图像路径
-            self.analyzed_images = analyzed_image_paths
+            # 分析后的图像路径（回放展示标注版本）
+            self.analyzed_images = display_image_paths
             
             # 复制最大火焰图片到持久化文件夹
-            if max_img_path and Path(max_img_path).exists():
+            if annotated_max_path and Path(annotated_max_path).exists():
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 persistent_filename = f"cycle_{self.cycle_number}_{timestamp}_max_flame.jpg"
                 self.persistent_max_flame_path = str(Path(self.result_images_dir) / persistent_filename)
-                shutil.copy2(max_img_path, self.persistent_max_flame_path)
+                shutil.copy2(annotated_max_path, self.persistent_max_flame_path)
                 print(f"[持久化] 最大火焰图片已保存: {self.persistent_max_flame_path}")
             
             # 启动图片加载

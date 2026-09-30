@@ -102,14 +102,12 @@ class ExplosionExperimentState(Enum):
         # 定义合法的状态转换规则
         valid_transitions: dict[ExplosionExperimentState, Set[ExplosionExperimentState]] = {
             self.IDLE: {self.CONNECTED},
-            self.CONNECTED: {self.IDLE, self.SESSION_CREATED},
-            # SESSION_CREATED 允许直接完成实验（can_finalize 包含该状态，且轮次结束后页面会回到该状态）
+            self.CONNECTED: {self.IDLE, self.SESSION_CREATED, self.ERROR},
             self.SESSION_CREATED: {self.SEQUENCE_RUNNING, self.COMPLETED, self.CANCELLED, self.ERROR},
-            # 用户在时序运行中主动停止时回到 SESSION_CREATED，以便重试本轮或完成实验
             self.SEQUENCE_RUNNING: {self.WAITING_ANALYSIS, self.SESSION_CREATED, self.CANCELLED, self.ERROR},
             self.WAITING_ANALYSIS: {self.SEQUENCE_RUNNING, self.SESSION_CREATED, self.COMPLETED, self.CANCELLED, self.ERROR},
             self.COMPLETED: {self.CONNECTED, self.SESSION_CREATED},  # 完成状态可以直接创建新实验，或回到连接状态
-            self.CANCELLED: set(),  # 取消状态是终态
+            self.CANCELLED: {self.CONNECTED},  # 结束会话后可重新连接
             self.ERROR: {self.SESSION_CREATED, self.CANCELLED}  # 错误后可以重试或取消
         }
         
@@ -130,7 +128,7 @@ class ExplosionExperimentState(Enum):
     
     def can_stop(self) -> bool:
         """检查是否可以停止实验"""
-        return self in {self.SEQUENCE_RUNNING, self.WAITING_ANALYSIS}
+        return self in {self.SEQUENCE_RUNNING, self.WAITING_ANALYSIS, self.ERROR}
     
     def can_create_experiment(self) -> bool:
         """检查是否可以创建实验"""
@@ -240,7 +238,7 @@ class IgnitionExperimentState(Enum):
             self.RUNNING: {self.STOPPED, self.CANCELLED, self.ERROR},
             self.STOPPED: {self.COMPLETED, self.CANCELLED, self.CONNECTED},  # 停止后只能完成或重置，不能继续运行
             self.COMPLETED: {self.CONNECTED},  # 完成状态可以重置为连接状态，以便创建新实验
-            self.CANCELLED: set(),  # 取消状态是终态
+            self.CANCELLED: {self.CONNECTED},  # 结束会话后可重新连接
             self.ERROR: {self.PREPARED, self.CANCELLED}  # 错误后可以重试或取消
         }
         
@@ -265,8 +263,8 @@ class IgnitionExperimentState(Enum):
     
     def can_create_experiment(self) -> bool:
         """检查是否可以创建实验"""
-        return self in {self.CONNECTED, self.COMPLETED}  # 只有连接状态或完成状态可以创建新实验，停止状态必须先完成实验
+        return self in {self.CONNECTED, self.COMPLETED, self.CANCELLED}  # 活动会话结束后才可新建
     
     def can_finalize(self) -> bool:
         """检查是否可以完成实验"""
-        return self in {self.STOPPED, self.RUNNING}  # 停止状态或运行状态都可以完成实验
+        return self in {self.STOPPED, self.RUNNING, self.ERROR}  # 异常会话可以保存为错误后结束

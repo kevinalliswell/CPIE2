@@ -7,6 +7,7 @@
 
 import sqlite3
 import os
+import math
 import yaml
 from datetime import datetime
 from typing import Optional, List, Dict, Tuple
@@ -16,6 +17,15 @@ from utils.path_manager import PathManager
 
 class ExplosionDatabase:
     """爆炸性实验数据库管理类"""
+
+    @staticmethod
+    def _valid_round_number(value):
+        return isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 10
+
+    @staticmethod
+    def _valid_flame_length(value):
+        return (isinstance(value, (int, float)) and not isinstance(value, bool)
+                and math.isfinite(value) and value >= 0)
     
     # 字段映射：数据库字段名 -> 中文表头
     COLUMN_HEADERS = {
@@ -311,11 +321,11 @@ class ExplosionDatabase:
                 self.logger.error("✗ 无效的会话ID")
                 return -1
             
-            if not (1 <= round_number <= 10):
+            if not self._valid_round_number(round_number):
                 self.logger.error(f"✗ 无效的轮次编号: {round_number}，应在1-10之间")
                 return -1
             
-            if flame_length < 0:
+            if not self._valid_flame_length(flame_length):
                 self.logger.error(f"✗ 无效的火焰长度: {flame_length}")
                 return -1
             
@@ -386,10 +396,10 @@ class ExplosionDatabase:
                 round_number, flame_length = round_item[0], round_item[1]
                 image_path = round_item[2] if len(round_item) >= 3 else None
 
-                if not (1 <= round_number <= 10):
+                if not self._valid_round_number(round_number):
                     self.logger.error(f"✗ 无效的轮次编号: {round_number}")
                     return 0
-                if flame_length < 0:
+                if not self._valid_flame_length(flame_length):
                     self.logger.error(f"✗ 无效的火焰长度: {flame_length}")
                     return 0
 
@@ -422,6 +432,8 @@ class ExplosionDatabase:
         Returns:
             爆炸性等级 (无爆炸性/弱爆炸性/强爆炸性/超强爆炸性)
         """
+        if not self._valid_flame_length(avg_flame_length):
+            raise ValueError('平均火焰长度必须为有限非负数')
         # 使用动态加载的阈值
         if avg_flame_length < self.EXPLOSION_LEVELS['none']['max']:
             return self.EXPLOSION_LEVELS['none']['name']
@@ -489,7 +501,7 @@ class ExplosionDatabase:
             """, (session_id,))
             
             result = self.cursor.fetchone()
-            if result and result[0] is not None:
+            if result and self._valid_flame_length(result[0]):
                 return round(result[0], 2)
             return None
         except sqlite3.Error as e:
@@ -507,6 +519,9 @@ class ExplosionDatabase:
         Returns:
             是否成功
         """
+        if status not in ('completed', 'cancelled', 'error'):
+            self.logger.error("无效的实验结束状态: %s", status)
+            return False
         try:
             # 检查会话状态，避免重复完成
             session = self.get_session_by_id(session_id)
@@ -517,12 +532,19 @@ class ExplosionDatabase:
             if session.get('status') in ['completed', 'cancelled']:
                 self.logger.warning(f"⚠ 会话 {session_id} 已经完成，状态: {session.get('status')}")
                 return False
-
-            if status not in ('completed', 'cancelled', 'error'):
-                # 以 running/prepared 等状态"完成"实验会让会话永远显示为运行中
-                self.logger.error(f"✗ 非法的完成状态: {status}")
-                return False
             
+            # Validate individual legacy rows before averaging: a positive
+            # average can otherwise conceal negatives, duplicates or gaps.
+            self.cursor.execute(
+                'SELECT round_number, flame_length FROM test_rounds '
+                'WHERE session_id = ? ORDER BY round_number', (session_id,))
+            rows = self.cursor.fetchall()
+            if any(not self._valid_round_number(number) or number != expected
+                   or not self._valid_flame_length(length)
+                   for expected, (number, length) in enumerate(rows, start=1)):
+                self.logger.error('✗ 轮次数据不连续、重复或数值无效，不能完成实验')
+                return False
+
             # 获取测试轮次数
             self.cursor.execute("""
                 SELECT COUNT(*), AVG(flame_length)
@@ -537,6 +559,9 @@ class ExplosionDatabase:
                 return False
             
             total_rounds = result[0]
+            if not self._valid_flame_length(result[1]):
+                self.logger.error('✗ 轮次包含无效数值，不能完成实验')
+                return False
             avg_flame_length = round(result[1], 2)
             
             # 分类爆炸性强弱
@@ -600,6 +625,32 @@ class ExplosionDatabase:
             self.conn.rollback()
             return False
     
+    def recover_interrupted_sessions(self) -> int:
+        """仅在启动取得单实例锁后调用，关闭上次进程遗留的未结束会话。
+
+        返回恢复数量；数据库失败抛出异常。结束时间是恢复检测时间，
+        不是实测结束时刻，不修改已完成轮次、结果或已经结束的会话。
+        """
+        detected_at = datetime.now()
+        note = (f"【启动恢复】恢复检测时间：{detected_at}。上次会话未正常结束，"
+                "标记为异常；end_time 为本次恢复检测时间，不是实测结束时间。")
+        try:
+            with self.conn:
+                cursor = self.conn.execute("""
+                    UPDATE experiment_sessions
+                    SET end_time = ?, status = 'error',
+                        description = CASE WHEN COALESCE(description, '') = '' THEN ?
+                            ELSE description || char(10) || ? END
+                    WHERE end_time IS NULL AND status IN ('running', 'prepared', 'error')
+                """, (detected_at, note, note))
+                recovered = cursor.rowcount
+            if recovered:
+                self.logger.warning(f"启动恢复了 {recovered} 个未正常结束的爆炸性会话")
+            return recovered
+        except sqlite3.Error:
+            self.logger.exception("恢复未结束的爆炸性会话失败")
+            raise
+
     # ==================== 删 (Delete) ====================
     
     def delete_session(self, session_id: int) -> bool:
@@ -651,7 +702,12 @@ class ExplosionDatabase:
                         filename = os.path.basename(image_path)
                         full_path = os.path.join(max_flame_images_dir, filename)
                     
-                    if os.path.exists(full_path):
+                    managed_root = os.path.realpath(PathManager.get_max_flame_images_path())
+                    full_path = os.path.realpath(full_path)
+                    if os.path.commonpath([managed_root, full_path]) != managed_root:
+                        self.logger.warning(f"图片路径不在应用管理目录内，保留原文件: {image_path}")
+                        continue
+                    if os.path.isfile(full_path):
                         os.remove(full_path)
                         deleted_files_count += 1
                         self.logger.info(f"✓ 已删除图片文件: {full_path}")
@@ -739,6 +795,13 @@ class ExplosionDatabase:
         
         if not kwargs:
             self.logger.error("✗ 没有提供要更新的字段")
+            return False
+
+        if ('flame_length' in kwargs and not self._valid_flame_length(kwargs['flame_length'])):
+            self.logger.error('✗ 火焰长度必须为有限非负数')
+            return False
+        if ('round_number' in kwargs and not self._valid_round_number(kwargs['round_number'])):
+            self.logger.error('✗ 轮次编号必须为 1-10 的整数')
             return False
         
         # 构建更新语句
@@ -1223,7 +1286,9 @@ class ExplosionDatabase:
             是否备份成功
         """
         try:
-            import os
+            if os.path.realpath(backup_path) == os.path.realpath(self.db_path):
+                self.logger.error("备份路径不能与正在使用的数据库相同")
+                return False
 
             # 确保备份目录存在
             backup_dir = os.path.dirname(backup_path)

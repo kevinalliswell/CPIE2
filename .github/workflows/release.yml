@@ -2,103 +2,76 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag (vX.Y.Z), matching configs/software.info
+        required: true
+        type: string
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  build-windows-release:
-    name: Build Windows release
-    runs-on: windows-latest
+  resolve:
+    name: Validate release tag and source version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      commit: ${{ steps.version.outputs.commit }}
     env:
-      PYTHONIOENCODING: utf-8
-      PYTHONUTF8: "1"
-
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          # pymodbus>=3.10 (required for the device_id= keyword used by modbus_multi_device)
-          # only supports Python 3.10+; building on 3.9 silently resolves pymodbus 3.8.x
-          # whose client API has no device_id argument and every Modbus call fails at runtime.
-          python-version: '3.11'
-
-      - name: Derive release version
+      - name: Resolve an existing version tag
         id: version
-        shell: bash
-        run: |
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            VERSION_TAG="${GITHUB_REF_NAME}"
-            VERSION="${VERSION_TAG#v}"
-            IS_RELEASE=true
-          else
-            # workflow_dispatch on a branch: build only, keep the version from software.info
-            VERSION="$(python -c "import json; print(json.load(open('configs/software.info', encoding='utf-8'))['version'])")"
-            VERSION_TAG="v${VERSION}"
-            IS_RELEASE=false
-          fi
-          echo "version_tag=${VERSION_TAG}" >> "$GITHUB_OUTPUT"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "is_release=${IS_RELEASE}" >> "$GITHUB_OUTPUT"
-
-      - name: Sync software version metadata
-        if: steps.version.outputs.is_release == 'true'
         shell: python
         run: |
-          import json
-          from pathlib import Path
+          import json, os, re, subprocess
+          tag = os.environ['RELEASE_TAG']
+          if not re.fullmatch(r'v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?', tag):
+              raise SystemExit('Release requires an existing vX.Y.Z tag, not a branch name')
+          commit = subprocess.check_output(['git', 'rev-parse', '--verify', f'refs/tags/{tag}^{{commit}}'], text=True).strip()
+          metadata = json.loads(subprocess.check_output(['git', 'show', f'{commit}:configs/software.info'], text=True))
+          if metadata['version'] != tag[1:]:
+              raise SystemExit('Tag and configs/software.info version must match; source metadata is never rewritten during release')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write(f'tag={tag}\ncommit={commit}\n')
 
-          config_path = Path("configs/software.info")
-          data = json.loads(config_path.read_text(encoding="utf-8"))
-          data["version"] = "${{ steps.version.outputs.version }}"
-          config_path.write_text(
-              json.dumps(data, ensure_ascii=False, indent=4) + "\n",
-              encoding="utf-8",
-          )
+  validate:
+    name: Validate and build the tagged source
+    needs: resolve
+    uses: ./.github/workflows/windows-validation.yml
+    secrets:
+      FLAMEKIT_DEPLOY_KEY: ${{ secrets.FLAMEKIT_DEPLOY_KEY }}
+    with:
+      ref: ${{ needs.resolve.outputs.commit }}
 
-      - name: Install dependencies
-        shell: bash
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-          python -m pip install -e flame_package -e modbus_multi_device_package
-
-      - name: Build release package
-        shell: bash
-        run: python build_release.py
-
-      - name: Verify release artifacts
-        shell: bash
-        run: |
-          ls -la release
-          test -n "$(ls -A release/*.zip 2>/dev/null)"
-          test -n "$(ls -A release/*_info.json 2>/dev/null)"
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+  publish:
+    name: Publish only the verified candidate
+    needs: [resolve, validate]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
         with:
-          name: CPIE-${{ steps.version.outputs.version }}-windows
-          path: |
-            release/*.zip
-            release/*_info.json
-
-      - name: Create GitHub Release
-        # Only publish a release for v* tags; a manual run on a branch must not
-        # create a release/tag named after the branch (e.g. "main").
-        if: steps.version.outputs.is_release == 'true'
-        uses: softprops/action-gh-release@v2
+          name: windows-candidate
+          path: release
+      - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.version_tag }}
-          name: CPIE ${{ steps.version.outputs.version_tag }}
+          tag_name: ${{ needs.resolve.outputs.tag }}
+          name: CPIE ${{ needs.resolve.outputs.tag }}
           generate_release_notes: true
+          fail_on_unmatched_files: true
           files: |
             release/*.zip
             release/*_info.json
+            release/*.sha256

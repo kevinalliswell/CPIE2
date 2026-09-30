@@ -8,6 +8,9 @@
 import time
 import threading
 import queue
+from concurrent.futures import Future, TimeoutError, CancelledError
+from contextlib import nullcontext
+from copy import deepcopy
 from typing import Dict, Any, List, Callable, Optional
 from datetime import datetime
 
@@ -29,6 +32,7 @@ class DataPoller:
         self.threads = []
         self.data_callbacks = []
         self.error_callbacks = []
+        self._stop_event = threading.Event()
         
         # 为每个设备创建独立的轮询线程
         self.device_threads = {}
@@ -57,6 +61,7 @@ class DataPoller:
             return
         
         self.running = True
+        self._stop_event.clear()
         
         # 为每个启用的设备创建轮询线程
         for device in self.devices:
@@ -74,12 +79,16 @@ class DataPoller:
     def stop(self):
         """停止轮询"""
         self.running = False
+        self._stop_event.set()
         
         # 等待所有线程结束
         for thread in self.device_threads.values():
             thread.join(timeout=2.0)
         
-        self.device_threads.clear()
+        stopped = not any(t.is_alive() for t in self.device_threads.values())
+        if stopped:
+            self.device_threads.clear()
+        return stopped
     
     def _poll_device(self, device, interval: float):
         """
@@ -92,7 +101,8 @@ class DataPoller:
         while self.running:
             try:
                 # 读取设备数据
-                data = device.read_data()
+                with getattr(device, "io_lock", nullcontext()):
+                    data = device.read_data()
                 
                 if data:
                     # 调用数据回调
@@ -118,7 +128,7 @@ class DataPoller:
                         print(f"错误回调错误: {err}")
             
             # 等待下一次轮询
-            time.sleep(interval)
+            self._stop_event.wait(interval)
     
     def get_status(self) -> Dict[str, Any]:
         """获取轮询器状态"""
@@ -131,202 +141,192 @@ class DataPoller:
 
 
 class ControlExecutor:
-    """控制执行器 - 负责执行控制命令（具有优先权）"""
-    
+    """One serial writer with completion results and a per-device safety barrier."""
+
+    PRIORITY_HIGH = 1
+    PRIORITY_NORMAL = 5
+    PRIORITY_LOW = 10
+
     def __init__(self, devices: List, max_queue_size: int = 100):
-        """
-        初始化控制执行器
-        
-        Args:
-            devices: 设备列表
-            max_queue_size: 最大队列长度
-        """
         self.devices = {d.name: d for d in devices}
         self.control_queue = queue.PriorityQueue(maxsize=max_queue_size)
         self.running = False
         self.executor_thread = None
         self.result_callbacks = []
-        
-        # 优先级定义
-        self.PRIORITY_HIGH = 1
-        self.PRIORITY_NORMAL = 5
-        self.PRIORITY_LOW = 10
-        
-        # 计数器，用于优先队列中相同优先级的排序
         self.counter = 0
-        self.counter_lock = threading.Lock()
-    
-    def add_result_callback(self, callback: Callable[[Dict[str, Any]], None]):
-        """
-        添加结果回调函数
-        
-        Args:
-            callback: 回调函数，参数为结果字典
-        """
+        self._lock = threading.RLock()
+        self._blocked_devices = set()
+        self._safety_futures = {}
+
+    def add_result_callback(self, callback):
         self.result_callbacks.append(callback)
-    
+
     def start(self):
-        """启动控制执行器"""
-        if self.running:
-            return
-        
-        self.running = True
-        self.executor_thread = threading.Thread(
-            target=self._execute_loop,
-            daemon=True,
-            name="ControlExecutor"
-        )
-        self.executor_thread.start()
-    
-    def stop(self, flush_timeout: float = 3.0):
-        """
-        停止控制执行器
+        with self._lock:
+            if self.running:
+                return
+            if self.executor_thread and self.executor_thread.is_alive():
+                raise RuntimeError("Previous control executor has not stopped")
+            self.running = True
+            self.executor_thread = threading.Thread(target=self._execute_loop,
+                                                    daemon=True, name="ControlExecutor")
+            self.executor_thread.start()
 
-        停止前会在 flush_timeout 秒内等待队列中尚未执行的控制命令执行完毕
-        （例如实验停止/程序退出时下发的"关闭全部继电器"命令），
-        避免这些安全相关的命令被直接丢弃。
-
-        Args:
-            flush_timeout: 等待队列清空的最长时间（秒），<=0 表示不等待直接丢弃
-        """
-        if (flush_timeout > 0 and self.running and self.executor_thread
-                and self.executor_thread.is_alive()):
-            deadline = time.time() + flush_timeout
-            while not self.control_queue.empty() and time.time() < deadline:
-                time.sleep(0.01)
-            if not self.control_queue.empty():
-                print(f"控制执行器停止: 超时后仍有 {self.control_queue.qsize()} 条命令未执行，已丢弃")
-
-        self.running = False
-
-        # 清空残留队列
-        while not self.control_queue.empty():
+    def _cancel_pending(self, device_name=None):
+        """Called under _lock, before placing the OFF barrier in the same queue."""
+        keep = []
+        while True:
             try:
-                self.control_queue.get_nowait()
+                entry = self.control_queue.get_nowait()
             except queue.Empty:
                 break
+            item = entry[2]
+            self.control_queue.task_done()
+            if device_name is None or item['device_name'] == device_name:
+                item['future'].cancel()
+            else:
+                keep.append(entry)
+        for entry in keep:
+            self.control_queue.put_nowait(entry)
 
-        if self.executor_thread:
-            self.executor_thread.join(timeout=2.0)
-    
-    def submit_control(self, device_name: str, control_data: Dict[str, Any],
-                      priority: int = None, timeout: float = 5.0) -> bool:
-        """
-        提交控制命令
-        
-        Args:
-            device_name: 设备名称
-            control_data: 控制数据
-            priority: 优先级（数字越小优先级越高），None使用NORMAL
-            timeout: 超时时间
-            
-        Returns:
-            是否成功加入队列
-        """
-        if device_name not in self.devices:
-            return False
-        
+    def stop(self, timeout=2.0):
+        with self._lock:
+            self.running = False
+            self._cancel_pending()
+        if self.executor_thread and self.executor_thread is not threading.current_thread():
+            self.executor_thread.join(timeout)
+        return not (self.executor_thread and self.executor_thread.is_alive())
+
+    def _submit(self, device_name, control_data, priority, timeout, safety=False, verify_relays=False):
+        with self._lock:
+            if not self.running or device_name not in self.devices:
+                return None
+            if not safety and device_name in self._blocked_devices:
+                return None
+            future = Future()
+            item = {'device_name': device_name, 'control_data': deepcopy(control_data),
+                    'deadline': time.monotonic() + timeout, 'future': future,
+                    'safety': safety, 'verify_relays': verify_relays, 'priority': priority}
+            try:
+                self.control_queue.put_nowait((priority, self.counter, item))
+                self.counter += 1
+                return future
+            except queue.Full:
+                return None
+
+    def submit_control(self, device_name, control_data, priority=None, timeout=5.0):
+        """Return queue admission only. Use submit_and_wait for execution results."""
         if priority is None:
             priority = self.PRIORITY_NORMAL
-        
-        control_item = {
-            'device_name': device_name,
-            'control_data': control_data,
-            'timestamp': time.time(),
-            'timeout': timeout
-        }
-        
-        try:
-            # 使用计数器确保相同优先级时按提交顺序排序
-            with self.counter_lock:
-                count = self.counter
-                self.counter += 1
-            
-            self.control_queue.put((priority, count, control_item), block=False)
-            return True
-        except queue.Full:
+        return self._submit(device_name, control_data, priority, timeout) is not None
+
+    def submit_high_priority(self, device_name, control_data):
+        return self.submit_control(device_name, control_data, self.PRIORITY_HIGH)
+
+    def submit_low_priority(self, device_name, control_data):
+        return self.submit_control(device_name, control_data, self.PRIORITY_LOW)
+
+    @staticmethod
+    def _wait_result(future, timeout, cancel_on_timeout=True):
+        if future is None:
             return False
-    
-    def submit_high_priority(self, device_name: str, control_data: Dict[str, Any]) -> bool:
-        """提交高优先级控制命令"""
-        return self.submit_control(device_name, control_data, 
-                                   priority=self.PRIORITY_HIGH)
-    
-    def submit_low_priority(self, device_name: str, control_data: Dict[str, Any]) -> bool:
-        """提交低优先级控制命令"""
-        return self.submit_control(device_name, control_data,
-                                   priority=self.PRIORITY_LOW)
-    
+        try:
+            return bool(future.result(timeout=timeout)['success'])
+        except (TimeoutError, CancelledError):
+            # A running I/O cannot be canceled. The OFF barrier still executes
+            # after it; callers must keep the executor alive on shutdown failure.
+            if cancel_on_timeout:
+                future.cancel()
+            return False
+
+    def submit_and_wait(self, device_name, control_data, timeout=5.0):
+        future = self._submit(device_name, control_data, self.PRIORITY_HIGH, timeout)
+        return self._wait_result(future, timeout)
+
+    def shutdown_relays(self, device_name, timeout=5.0):
+        return self.shutdown_control(device_name, {'set_all': {'states': [False] * 4}},
+                                     timeout=timeout, verify_relays=True)
+
+    def shutdown_control(self, device_name, control_data, timeout=5.0, verify_relays=False):
+        with self._lock:
+            self._blocked_devices.add(device_name)
+            future = self._safety_futures.get(device_name)
+            if future is None or future.done():
+                self._cancel_pending(device_name)
+                future = self._submit(device_name, control_data, 0, timeout,
+                                      safety=True, verify_relays=verify_relays)
+                self._safety_futures[device_name] = future
+        return self._wait_result(future, timeout, cancel_on_timeout=False)
+
+    def resume_controls(self, device_name):
+        with self._lock:
+            if not self.running or device_name not in self.devices:
+                return False
+            future = self._safety_futures.get(device_name)
+            if device_name in self._blocked_devices:
+                if future is None or not future.done() or future.cancelled():
+                    return False
+                if not future.result()['success']:
+                    return False
+            self._blocked_devices.discard(device_name)
+            self._safety_futures.pop(device_name, None)
+            return True
+
+    def _execute_item(self, item):
+        device = self.devices[item['device_name']]
+        result = {'device_name': item['device_name'], 'control_data': item['control_data'],
+                  'success': False, 'error': None, 'timestamp': datetime.now().isoformat(),
+                  'priority': item['priority']}
+        try:
+            with getattr(device, 'io_lock', nullcontext()):
+                if time.monotonic() > item['deadline'] and not item['safety']:
+                    result['error'] = '控制命令超时'
+                    return result
+                success = bool(device.write_control(item['control_data']))
+                if success and item['verify_relays']:
+                    readback = device.read_data()
+                    relays = readback.get('relays', {}) if readback else {}
+                    success = all(relays.get(f'relay_{i}') is False for i in range(1, 5))
+                    if success:
+                        result['readback'] = readback
+                    else:
+                        result['error'] = '未确认全部继电器已关闭'
+                result['success'] = success
+                if not success and result['error'] is None:
+                    result['error'] = device.last_error or '设备拒绝控制命令'
+        except Exception as exc:
+            result['error'] = str(exc)
+        return result
+
     def _execute_loop(self):
-        """控制执行循环"""
         while self.running:
             try:
-                # 获取控制命令（带超时）- 解包三元组 (priority, count, control_item)
-                priority, count, control_item = self.control_queue.get(timeout=0.5)
-                
-                device_name = control_item['device_name']
-                control_data = control_item['control_data']
-                submit_time = control_item['timestamp']
-                timeout = control_item['timeout']
-                
-                # 检查超时
-                if time.time() - submit_time > timeout:
-                    result = {
-                        'device_name': device_name,
-                        'success': False,
-                        'error': '控制命令超时',
-                        'timestamp': datetime.now().isoformat()
-                    }
-                    self._notify_result(result)
-                    continue
-                
-                # 执行控制
-                device = self.devices.get(device_name)
-                if device:
-                    try:
-                        success = device.write_control(control_data)
-                        
-                        result = {
-                            'device_name': device_name,
-                            'control_data': control_data,
-                            'success': success,
-                            'error': None if success else device.last_error,
-                            'timestamp': datetime.now().isoformat(),
-                            'priority': priority
-                        }
-                        
-                        self._notify_result(result)
-                        
-                    except Exception as e:
-                        result = {
-                            'device_name': device_name,
-                            'success': False,
-                            'error': str(e),
-                            'timestamp': datetime.now().isoformat()
-                        }
-                        self._notify_result(result)
-                
+                _, _, item = self.control_queue.get(timeout=0.1)
             except queue.Empty:
                 continue
-            except Exception as e:
-                print(f"控制执行器错误: {e}")
-    
-    def _notify_result(self, result: Dict[str, Any]):
-        """通知结果回调"""
+            try:
+                with self._lock:
+                    if not self.running or (item['device_name'] in self._blocked_devices and not item['safety']):
+                        item['future'].cancel()
+                    admitted = item['future'].set_running_or_notify_cancel()
+                if not admitted:
+                    continue
+                result = self._execute_item(item)
+                item['future'].set_result(result)
+                self._notify_result(result)
+            finally:
+                self.control_queue.task_done()
+
+    def _notify_result(self, result):
         for callback in self.result_callbacks:
             try:
                 callback(result)
-            except Exception as e:
-                print(f"结果回调错误: {e}")
-    
-    def get_status(self) -> Dict[str, Any]:
-        """获取执行器状态"""
-        return {
-            'running': self.running,
-            'queue_size': self.control_queue.qsize(),
-            'devices_count': len(self.devices)
-        }
-    
-    def get_queue_size(self) -> int:
-        """获取队列长度"""
+            except Exception as exc:
+                print(f"结果回调错误: {exc}")
+
+    def get_status(self):
+        return {'running': self.running, 'queue_size': self.control_queue.qsize(),
+                'devices_count': len(self.devices)}
+
+    def get_queue_size(self):
         return self.control_queue.qsize()

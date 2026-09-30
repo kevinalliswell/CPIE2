@@ -8,6 +8,8 @@ Modbus设备管理器
 import time
 import logging
 import os
+import threading
+from copy import deepcopy
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Callable
 from pymodbus.client import ModbusSerialClient
@@ -52,12 +54,23 @@ class ModbusDeviceManager:
         
         # 状态
         self.connected = False
+        # An open transport must remain available for safety commands even when
+        # only some required devices answer the connection verification.
+        self.ready = False
         self.started = False
+        # Never clear contact/control evidence on cache invalidation or reconnect.
+        self._device_activity = threading.Event()
+        self._devices_initialized = False
+        self._probe_complete = False
         
         # 数据存储
         self.latest_data = {}
         self.data_history = []
         self.max_history = 1000
+        self._data_lock = threading.RLock()
+        self._io_lock = threading.RLock()
+        self._received_at = {}
+        self._sample_id = 0
         
         self.logger.info("Modbus设备管理器已初始化")
     
@@ -68,51 +81,45 @@ class ModbusDeviceManager:
         log_level = getattr(logging, log_config.get('level', 'INFO'))
         self.logger = logging.getLogger('ModbusManager')
         self.logger.setLevel(log_level)
-
-        # 'ModbusManager' 是进程内共享的命名日志器，每次重新连接都会新建管理器实例，
-        # 先移除旧实例安装的处理器，避免日志重复输出和文件句柄泄漏
-        for handler in list(self.logger.handlers):
-            self.logger.removeHandler(handler)
-            try:
-                handler.close()
-            except Exception:
-                pass
-
-        # 控制台输出
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(log_level)
+        
         formatter = logging.Formatter(
             '[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
+        console_handler = next((h for h in self.logger.handlers
+                                if getattr(h, '_cpie_modbus_kind', None) == 'console'), None)
+        if console_handler is None:
+            console_handler = logging.StreamHandler()
+            console_handler._cpie_modbus_kind = 'console'
+            self.logger.addHandler(console_handler)
+        console_handler.setLevel(log_level)
         console_handler.setFormatter(formatter)
-        self.logger.addHandler(console_handler)
-        
-        # 文件输出
+
         if log_config.get('save_to_file', False):
             log_dir = log_config.get('log_dir', 'logs')
             os.makedirs(log_dir, exist_ok=True)
-            
-            log_file = os.path.join(
-                log_dir,
-                f"modbus_{datetime.now().strftime('%Y%m%d')}.log"
-            )
-            
-            file_handler = logging.FileHandler(log_file, encoding='utf-8')
+            log_file = os.path.abspath(os.path.join(
+                log_dir, f"modbus_{datetime.now().strftime('%Y%m%d')}.log"))
+            file_handler = next((h for h in self.logger.handlers
+                                 if getattr(h, '_cpie_modbus_kind', None) == 'file'
+                                 and h.baseFilename == log_file), None)
+            if file_handler is None:
+                file_handler = logging.FileHandler(log_file, encoding='utf-8')
+                file_handler._cpie_modbus_kind = 'file'
+                self.logger.addHandler(file_handler)
             file_handler.setLevel(log_level)
             file_handler.setFormatter(formatter)
-            self.logger.addHandler(file_handler)
-    
+
     def connect(self) -> bool:
         """
-        连接到串口并初始化所有设备
+        连接串口并验证全部必需设备；部分失败时保留串口用于安全关断。
         
         Returns:
-            是否连接成功
+            全部必需设备是否就绪。connected 单独表示串口已打开。
         """
         if self.connected:
-            self.logger.warning("已经连接，无需重复连接")
-            return True
+            self.ready = self._verify_devices()
+            return self.ready
         
         try:
             # 获取串口配置
@@ -125,7 +132,8 @@ class ModbusDeviceManager:
                 bytesize=int(serial_config.get('bytesize', 8)),
                 parity=serial_config.get('parity', 'N'),
                 stopbits=int(serial_config.get('stopbits', 1)),
-                timeout=float(serial_config.get('timeout', 1.0))
+                timeout=float(serial_config.get('timeout', 1.0)),
+                retries=0,
             )
             
             # 连接串口
@@ -134,32 +142,35 @@ class ModbusDeviceManager:
                 return False
             
             self.logger.info(f"串口连接成功: {serial_config.get('port')}")
+            self.connected = True
+            self.ready = False
             
             # 初始化设备
             self._init_devices()
             
             # 验证设备是否在线
-            if not self._verify_devices():
-                self.logger.warning("串口已打开，但无法与设备通信（设备可能离线）")
-                self.client.close()
+            self.ready = self._verify_devices()
+            if not self.ready:
+                self.logger.warning("部分必需设备离线；保留串口用于安全关断和重试连接")
                 return False
             
-            self.connected = True
             return True
-
+            
         except Exception as e:
             self.logger.error(f"连接失败: {e}")
-            # 串口可能已经打开，必须关闭，否则重试连接时端口被占用
-            if self.client:
-                try:
-                    self.client.close()
-                except Exception:
-                    pass
+            self.ready = False
+            if self.client and not self.connected:
+                self.client.close()
             return False
     
     def _init_devices(self):
         """初始化所有设备"""
+        self._devices_initialized = False
+        self._probe_complete = False
         devices_config = self.config_loader.get_devices_config()
+        self.devices.clear()
+        self.device_list.clear()
+        initialization_complete = True
         
         for device_config in devices_config:
             try:
@@ -171,6 +182,7 @@ class ModbusDeviceManager:
                 device_class = DEVICE_TYPES.get(device_type)
                 if not device_class:
                     self.logger.error(f"未知的设备类型: {device_type}")
+                    initialization_complete = False
                     continue
                 
                 # 创建设备实例
@@ -178,6 +190,8 @@ class ModbusDeviceManager:
                     name=device_name,
                     address=device_address,
                     client=self.client,
+                    io_lock=self._io_lock,
+                    activity_event=self._device_activity,
                     **device_config.get('parameters', {}),
                     enabled=device_config.get('enabled', True),
                     poll_interval=float(device_config.get('poll_interval', 1.0))
@@ -189,15 +203,18 @@ class ModbusDeviceManager:
                 self.logger.info(f"设备已初始化: {device_name} ({device_type})")
                 
             except Exception as e:
+                initialization_complete = False
                 self.logger.error(f"初始化设备失败: {e}")
+        self._devices_initialized = initialization_complete
     
     def _verify_devices(self) -> bool:
         """
-        验证设备是否在线（尝试读取第一个启用的设备）
+        验证全部启用的设备是否在线。
         
         Returns:
-            至少有一个设备响应返回True，否则返回False
+            至少配置一个启用设备，且所有启用设备均响应时返回 True。
         """
+        self._probe_complete = False
         if not self.device_list:
             self.logger.warning("没有配置任何设备")
             return False
@@ -205,6 +222,7 @@ class ModbusDeviceManager:
         # 尝试读取所有启用的设备
         success_count = 0
         enabled_count = 0
+        probe_complete = True
         
         for device in self.device_list:
             if not device.enabled:
@@ -218,42 +236,50 @@ class ModbusDeviceManager:
                 
                 if data is not None:
                     success_count += 1
+                    self._on_data_received(data)
                     self.logger.info(f"设备验证成功: {device.name}")
                 else:
                     self.logger.warning(f"设备无响应: {device.name}")
                     
             except Exception as e:
+                probe_complete = False
                 self.logger.warning(f"设备验证失败 [{device.name}]: {e}")
+
+        self._probe_complete = bool(
+            self._devices_initialized and probe_complete and enabled_count > 0
+        )
         
-        # 至少有一个设备响应才算成功
-        if success_count > 0:
+        # Every configured, enabled device is required by the experiment.
+        if enabled_count > 0 and success_count == enabled_count:
             self.logger.info(f"设备验证完成: {success_count}/{enabled_count} 个设备在线")
             return True
         else:
-            self.logger.error(f"所有设备均无响应 (0/{enabled_count})")
+            self.logger.error(f"必需设备未全部在线 ({success_count}/{enabled_count})")
             return False
+
+    def can_close_without_device_shutdown(self) -> bool:
+        """Allow only a completed, untouched probe that found no device responses."""
+        return bool(
+            self._probe_complete and not self._device_activity.is_set()
+            and not self.started and self.poller is None and self.executor is None
+        )
     
     def disconnect(self):
         """断开连接"""
-        if not self.connected:
-            return
-        
         # 停止轮询和控制
-        self.stop()
+        if not self.stop():
+            self.logger.error("设备线程尚未停止，保留串口以便重试关断")
+            return False
         
         # 关闭串口
         if self.client:
-            try:
-                self.client.close()
-            except Exception as e:
-                self.logger.warning(f"关闭串口失败: {e}")
-
+            self.client.close()
+        
         self.connected = False
+        self.ready = False
+        self._invalidate_data()
         self.logger.info("已断开连接")
-
-    def close(self):
-        """disconnect() 的别名，便于统一的资源清理调用"""
-        self.disconnect()
+        return True
     
     def start(self):
         """启动数据采集和控制"""
@@ -264,6 +290,14 @@ class ModbusDeviceManager:
         if self.started:
             self.logger.warning("已经启动")
             return True
+
+        # stop() is bounded and may return while an I/O is still unwinding.
+        # Never lose its executor/poller references by starting replacement workers.
+        old_writer = self.executor.executor_thread if self.executor else None
+        old_readers = self.poller.device_threads.values() if self.poller else ()
+        if (old_writer and old_writer.is_alive()) or any(t.is_alive() for t in old_readers):
+            self.logger.error("旧设备线程尚未停止，不能重启设备管理器")
+            return False
         
         try:
             # 获取轮询配置
@@ -300,38 +334,49 @@ class ModbusDeviceManager:
     
     def stop(self):
         """停止数据采集和控制"""
-        if not self.started:
-            return
+        self.started = False
+        self._invalidate_data()
         
+        stopped = True
         if self.poller:
-            self.poller.stop()
+            stopped = self.poller.stop() and stopped
             self.logger.info("数据轮询已停止")
         
         if self.executor:
-            self.executor.stop()
+            stopped = self.executor.stop() and stopped
             self.logger.info("控制执行器已停止")
         
-        self.started = False
+        self._invalidate_data()
+        return stopped
+
+    def _invalidate_data(self):
+        with self._data_lock:
+            self.latest_data.clear()
+            self._received_at.clear()
     
     def _on_data_received(self, data: Dict[str, Any]):
         """数据接收回调"""
+        self._device_activity.set()
         device_name = data.get('device')
         
-        # 更新最新数据
-        self.latest_data[device_name] = data
-        
-        # 添加到历史记录
-        self.data_history.append(data)
-        
-        # 限制历史记录长度
-        if len(self.data_history) > self.max_history:
-            self.data_history.pop(0)
+        with self._data_lock:
+            self._sample_id += 1
+            snapshot = deepcopy(data)
+            snapshot['sample_id'] = self._sample_id
+            self.latest_data[device_name] = snapshot
+            self._received_at[device_name] = time.monotonic()
+            self.data_history.append(snapshot)
+            if len(self.data_history) > self.max_history:
+                self.data_history.pop(0)
         
         self.logger.debug(f"收到数据: {device_name}")
     
     def _on_error_occurred(self, device_name: str, error: Exception):
         """错误发生回调"""
         self.logger.error(f"设备错误 [{device_name}]: {error}")
+        with self._data_lock:
+            self.latest_data.pop(device_name, None)
+            self._received_at.pop(device_name, None)
     
     def _on_control_result(self, result: Dict[str, Any]):
         """控制结果回调"""
@@ -340,6 +385,8 @@ class ModbusDeviceManager:
         
         if success:
             self.logger.info(f"控制成功 [{device_name}]")
+            if result.get('readback'):
+                self._on_data_received(result['readback'])
         else:
             self.logger.error(f"控制失败 [{device_name}]: {result.get('error')}")
     
@@ -365,6 +412,7 @@ class ModbusDeviceManager:
             return False
         
         # 根据优先级提交控制
+        self._device_activity.set()
         if priority == 'high':
             return self.executor.submit_high_priority(device_name, control_data)
         elif priority == 'low':
@@ -372,7 +420,32 @@ class ModbusDeviceManager:
         else:
             return self.executor.submit_control(device_name, control_data)
     
-    def get_latest_data(self, device_name: str = None) -> Optional[Dict[str, Any]]:
+    def send_control_and_wait(self, device_name, control_data, timeout=5.0):
+        """Return the actual write result, never just queue admission."""
+        if not self.started or not self.executor:
+            return False
+        self._device_activity.set()
+        return self.executor.submit_and_wait(device_name, control_data, timeout=timeout)
+
+    def shutdown_relays(self, device_name, timeout=5.0):
+        """Block ordinary commands and confirm all four coils OFF by fresh readback."""
+        if not self.started or not self.executor:
+            return False
+        self._device_activity.set()
+        return self.executor.shutdown_relays(device_name, timeout=timeout)
+
+    def shutdown_control(self, device_name, control_data, timeout=5.0):
+        """Cancel pending commands and await a final stop command, blocking later writes."""
+        if not self.started or not self.executor:
+            return False
+        self._device_activity.set()
+        return self.executor.shutdown_control(device_name, control_data, timeout=timeout)
+
+    def resume_controls(self, device_name):
+        """Explicitly admit commands again after a confirmed safe shutdown."""
+        return bool(self.started and self.executor and self.executor.resume_controls(device_name))
+
+    def get_latest_data(self, device_name: str = None, max_age=None) -> Optional[Dict[str, Any]]:
         """
         获取最新数据
         
@@ -382,10 +455,20 @@ class ModbusDeviceManager:
         Returns:
             设备数据字典
         """
-        if device_name:
-            return self.latest_data.get(device_name)
-        else:
-            return self.latest_data.copy()
+        if not self.started:
+            return None if device_name else {}
+        polling = self.config_loader.get_polling_config()
+        with self._data_lock:
+            now = time.monotonic()
+            fresh = {}
+            for name, data in self.latest_data.items():
+                device = self.devices.get(name)
+                interval = getattr(device, 'poll_interval', polling.get('default_interval', 1.0))
+                limit = max_age if max_age is not None else polling.get('max_data_age', max(3.0, 3 * interval))
+                age = now - self._received_at.get(name, float('-inf'))
+                if 0 <= age <= float(limit):
+                    fresh[name] = deepcopy(data)
+            return fresh.get(device_name) if device_name else fresh
     
     def get_data_history(self, device_name: str = None, 
                         count: int = None) -> List[Dict[str, Any]]:
@@ -422,17 +505,19 @@ class ModbusDeviceManager:
         if device_name:
             device = self.devices.get(device_name)
             if device:
-                return device.get_status()
+                status = device.get_status()
+                status['online'] = self.get_latest_data(device_name) is not None
+                return status
             else:
                 return None
         else:
-            return {name: device.get_status() 
-                   for name, device in self.devices.items()}
+            return {name: self.get_device_status(name) for name in self.devices}
     
     def get_system_status(self) -> Dict[str, Any]:
         """获取系统状态"""
         status = {
             'connected': self.connected,
+            'ready': self.ready,
             'started': self.started,
             'devices_count': len(self.devices),
             'enabled_devices': len([d for d in self.device_list if d.enabled]),

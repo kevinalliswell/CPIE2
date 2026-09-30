@@ -3,6 +3,7 @@
 """Pytest coverage for flame analyzer configuration handling."""
 
 import sys
+import importlib
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,7 @@ SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-pytest.importorskip("cv2")
+importlib.import_module("cv2")
 
 from views.dialogs.flame_analyzer.config_manager import FlameAnalyzerConfig
 from views.dialogs.flame_analyzer.flame_processor import FlameImageProcessor
@@ -81,13 +82,13 @@ def test_config_initialization_reads_expected_values(config, config_file):
     assert config.log_level == "INFO"
 
 
-def test_config_paths_resolve_against_project_root(config):
-    assert config.history_csv_path == PROJECT_ROOT / "data/exp_explosion/history_explosion.csv"
-    assert config.exp_data_json_path == PROJECT_ROOT / "data/exp_explosion/explosion_experiment_data.json"
-    assert config.temp_folder == PROJECT_ROOT / "data/temp_captures"
-    assert config.flame_output_folder == PROJECT_ROOT / "data/flame_results"
-    assert config.max_flame_save_folder == PROJECT_ROOT / "data/max_flame_images"
-    assert config.log_file == PROJECT_ROOT / "logs/flame_analyzer.log"
+def test_config_paths_resolve_against_project_root(config, isolated_runtime):
+    assert config.history_csv_path == isolated_runtime / "data/exp_explosion/history_explosion.csv"
+    assert config.exp_data_json_path == isolated_runtime / "data/exp_explosion/explosion_experiment_data.json"
+    assert config.temp_folder == isolated_runtime / "data/temp_captures"
+    assert config.flame_output_folder == isolated_runtime / "data/flame_results"
+    assert config.max_flame_save_folder == isolated_runtime / "data/max_flame_images"
+    assert config.log_file == isolated_runtime / "logs/flame_analyzer.log"
 
 
 def test_processor_receives_same_config_instance(config):

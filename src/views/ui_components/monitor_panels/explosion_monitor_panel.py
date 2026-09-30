@@ -7,9 +7,14 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QGridLayout
 )
 from PySide6.QtCore import QTimer
+import math
 
 from .base_monitor_panel import BaseMonitorPanel
 from .components import LargeMetricCard, RelayStatusCard
+
+
+def _valid_measurement(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 class ExplosionMonitorPanel(BaseMonitorPanel):
@@ -73,13 +78,14 @@ class ExplosionMonitorPanel(BaseMonitorPanel):
         
         # 继电器状态卡片
         self.relay_card = RelayStatusCard()
+        self._set_relay_states({})
         layout.addWidget(self.relay_card)
         
         layout.addStretch()
         
         return widget
     
-    def connect_controller_signals(self, controller, update_interval=None):
+    def connect_controller_signals(self, controller):
         """连接控制器（使用定时器轮询，和主屏一样的方式）"""
         if controller is None:
             return
@@ -90,20 +96,17 @@ class ExplosionMonitorPanel(BaseMonitorPanel):
             self.manager = controller.manager
         
         # 启动定时器轮询（和主屏一样的方式）
-        # 更新间隔由副屏窗口从 ui 配置传入（控制器只持有实验段配置，其中没有 ui 信息）
-        try:
-            update_interval = int(update_interval) if update_interval else 500
-        except (TypeError, ValueError):
-            update_interval = 500
-
+        # 默认更新间隔500ms，可以从ui_config获取
+        update_interval = 500  # ms
+        if hasattr(controller, 'config') and controller.config:
+            ui_config = controller.config.get('ui_config', {})
+            update_interval = ui_config.get('update_interval', 500)
+        
         self.update_timer.start(update_interval)
         print(f"[爆炸性监控面板] 定时器轮询已启动，间隔: {update_interval}ms")
     
     def disconnect_controller_signals(self, controller):
         """断开控制器（停止定时器）"""
-        if controller is None:
-            return
-        
         # 停止定时器
         if self.update_timer:
             self.update_timer.stop()
@@ -112,6 +115,7 @@ class ExplosionMonitorPanel(BaseMonitorPanel):
         # 清空引用
         self.controller = None
         self.manager = None
+        self.reset()
     
     # ==================== 定时器轮询更新（和主屏一样的方式）====================
     
@@ -122,8 +126,7 @@ class ExplosionMonitorPanel(BaseMonitorPanel):
             self.manager = self.controller.manager
         
         if not self.manager:
-            # 如果manager还没有创建，说明设备可能还没连接
-            # 不输出日志，避免刷屏
+            self.reset()
             return
         
         # 更新温控仪表数据
@@ -138,44 +141,39 @@ class ExplosionMonitorPanel(BaseMonitorPanel):
     def _update_controller_data(self):
         """更新温控仪表数据（和主屏一样的方式）"""
         data = self.manager.get_latest_data('爆炸性-温控仪表')
-        if data:
-            pv = data.get('pv')
-            if pv is not None:
-                self.temp_card.set_value(pv, "°C")
-            else:
-                self.temp_card.set_value("--")
+        pv = data.get('pv') if isinstance(data, dict) else None
+        self.temp_card.set_value(pv if _valid_measurement(pv) else "--", "°C")
     
     def _update_pressure_data(self):
         """更新压力仪表数据（和主屏一样的方式）"""
         data = self.manager.get_latest_data('爆炸性-压力表')
-        if data:
-            pressure = data.get('pressure', 0.0)
-            if pressure is not None:
-                self.pressure_card.set_value(pressure, "kPa")
-            else:
-                self.pressure_card.set_value("--")
+        pressure = data.get('pressure') if isinstance(data, dict) else None
+        self.pressure_card.set_value(pressure if _valid_measurement(pressure) else "--", "kPa")
     
     def _update_relay_status(self):
         """更新继电器状态（和主屏一样的方式）"""
         data = self.manager.get_latest_data('爆炸性-继电器')
-        if data:
-            relays = data.get('relays', {})
-            # 转换为继电器状态卡片需要的格式
-            relay_states = {}
-            for relay_key, state in relays.items():
-                # relay_key 格式: 'relay_1', 'relay_2' 等
-                if relay_key.startswith('relay_'):
-                    relay_num = relay_key.replace('relay_', '')
-                    relay_states[relay_num] = state
-            
-            if relay_states:
-                self.relay_card.update_relay_states(relay_states)
-            else:
-                self.relay_card.reset()
+        relays = data.get('relays') if isinstance(data, dict) else None
+        if not isinstance(relays, dict):
+            relays = {}
+        self._set_relay_states({key: relays.get(f'relay_{key}')
+                                for key in self.relay_card.relay_labels})
+
+    def _set_relay_states(self, states):
+        """缺失状态显示未知，只有明确的布尔读回值才能显示导通/关闭。"""
+        known_states = {key: value for key, value in states.items() if isinstance(value, bool)}
+        self.relay_card.update_relay_states(known_states)
+        for key, label in self.relay_card.relay_labels.items():
+            if key not in known_states:
+                label.setText("未知")
+                label.setStyleSheet(
+                    "padding: 2px 6px; background-color: #b9770e; color: white; "
+                    "border-radius: 6px; font-weight: bold; font-size: 16px; "
+                    "min-height: 10px; max-height: 40px;"
+                )
     
     def reset(self):
         """重置面板"""
         self.temp_card.set_value("--")
         self.pressure_card.set_value("--")
-        self.relay_card.reset()
-
+        self._set_relay_states({})

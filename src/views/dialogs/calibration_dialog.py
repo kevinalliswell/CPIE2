@@ -5,6 +5,8 @@
 用于计算像素到毫米的转换参数
 """
 
+import math
+
 import cv2
 import numpy as np
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
@@ -283,8 +285,8 @@ class CalibrationDialog(QDialog):
             QMessageBox.warning(self, "警告", "请输入有效的长度数值！")
             return
             
-        if actual_length_mm <= 0:
-            QMessageBox.warning(self, "警告", "长度必须大于0！")
+        if not math.isfinite(actual_length_mm) or actual_length_mm <= 0:
+            QMessageBox.warning(self, "警告", "长度必须是有限且大于0的数值！")
             return
             
         # 计算像素距离
@@ -299,6 +301,9 @@ class CalibrationDialog(QDialog):
             
         # 计算标定参数
         mm_per_pixel = actual_length_mm / pixel_distance
+        if not math.isfinite(mm_per_pixel) or mm_per_pixel <= 0:
+            QMessageBox.warning(self, "警告", "标定比例必须是有限且大于0的数值，请检查长度和选点！")
+            return
         
         # 显示结果
         result_msg = (
@@ -316,16 +321,21 @@ class CalibrationDialog(QDialog):
         # 关闭对话框
         self.accept()
         
-    def closeEvent(self, event):
-        """关闭事件处理"""
-        # 停止预览
+    def _stop_preview(self):
+        """Stop this dialog's reads without releasing the shared camera."""
         if self.preview_timer and self.preview_timer.isActive():
             self.preview_timer.stop()
-        event.accept()
+
+    def done(self, result):
+        # accept()/done() hide a QDialog without necessarily invoking closeEvent.
+        self._stop_preview()
+        super().done(result)
+
+    def closeEvent(self, event):
+        self._stop_preview()
+        super().closeEvent(event)
         
     def reject(self):
         """取消按钮"""
-        # 停止预览
-        if self.preview_timer and self.preview_timer.isActive():
-            self.preview_timer.stop()
+        self._stop_preview()
         super().reject()

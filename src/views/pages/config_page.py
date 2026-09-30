@@ -429,8 +429,6 @@ class ConfigPage(QWidget):
         # 最大轮次
         layout.addWidget(QLabel("最大轮次:"), row, 0)
         max_rounds_spin = QSpinBox()
-        max_rounds_spin.setRange(1, 50)
-        max_rounds_spin.setValue(test_rounds['max-rounds'])
         self.config_widgets['test_max_rounds'] = max_rounds_spin
         layout.addWidget(max_rounds_spin, row, 1)
         
@@ -438,22 +436,76 @@ class ConfigPage(QWidget):
         # 每阶段轮次
         layout.addWidget(QLabel("每阶段轮次:"), row, 0)
         phase_rounds_spin = QSpinBox()
-        phase_rounds_spin.setRange(1, 20)
-        phase_rounds_spin.setValue(test_rounds['phase-rounds'])
         self.config_widgets['test_phase_rounds'] = phase_rounds_spin
         layout.addWidget(phase_rounds_spin, row, 1)
         
         row += 1
-        # 说明信息（国标要求和非标自定义）
+        # Limits describe supported application behavior, not certification.
         info_label = QLabel(
             "说明:\n"
-            "• 国标要求: 最大轮次10轮, 每阶段5轮\n"
-            "• 非标自定义: 可根据实验需要调整轮次参数"
+            "• 当前最多支持10轮，阶段轮次不能超过最大轮次\n"
+            "• 轮次参数用于定义实验流程，不代表标准符合性结论"
         )
         info_label.setStyleSheet("color: #9e9e9e; font-size: 9pt; padding-top: 10px;")
         layout.addWidget(info_label, row, 0, 1, 2)
+
+        self.rounds_validation_label = QLabel()
+        self.rounds_validation_label.setWordWrap(True)
+        self.rounds_validation_label.setStyleSheet('color: #ef5350;')
+        layout.addWidget(self.rounds_validation_label, row + 1, 0, 1, 2)
+        self._load_round_controls(test_rounds)
+        max_rounds_spin.valueChanged.connect(self._on_max_rounds_changed)
+        phase_rounds_spin.valueChanged.connect(self._on_phase_rounds_changed)
         
         return group
+
+    def _load_round_controls(self, test_rounds):
+        """Display invalid legacy values without silently rewriting them."""
+        maximum = self.config_widgets['test_max_rounds']
+        phase = self.config_widgets['test_phase_rounds']
+        maximum_value, phase_value = test_rounds['max-rounds'], test_rounds['phase-rounds']
+        if any(not isinstance(value, int) or isinstance(value, bool)
+               for value in (maximum_value, phase_value)):
+            raise ValueError('实验轮次配置必须是整数')
+        blocked = (maximum.blockSignals(True), phase.blockSignals(True))
+        try:
+            # Invalid saved values are visible for explicit correction. New
+            # valid choices immediately restore the supported widget limits.
+            maximum.setRange(min(1, maximum_value), max(10, maximum_value))
+            maximum.setValue(maximum_value)
+            phase.setRange(min(1, phase_value), max(1, min(maximum_value, 10), phase_value))
+            phase.setValue(phase_value)
+        finally:
+            maximum.blockSignals(blocked[0])
+            phase.blockSignals(blocked[1])
+        self._update_round_validation()
+
+    def _on_max_rounds_changed(self, value):
+        if 1 <= value <= 10:
+            self.config_widgets['test_max_rounds'].setRange(1, 10)
+            self.config_widgets['test_phase_rounds'].setRange(1, value)
+        self._update_round_validation()
+
+    def _on_phase_rounds_changed(self, value):
+        maximum = self.config_widgets['test_max_rounds'].value()
+        if 1 <= value <= maximum <= 10:
+            self.config_widgets['test_phase_rounds'].setRange(1, maximum)
+        self._update_round_validation()
+
+    def _validate_round_controls(self):
+        maximum = self.config_widgets['test_max_rounds'].value()
+        phase = self.config_widgets['test_phase_rounds'].value()
+        if not 1 <= phase <= maximum <= 10:
+            raise ValueError(
+                f'实验轮次配置无效：阶段轮次 {phase}，最大轮次 {maximum}；'
+                '需要 1 ≤ 阶段轮次 ≤ 最大轮次 ≤ 10，请修正后再保存或应用')
+
+    def _update_round_validation(self):
+        try:
+            self._validate_round_controls()
+            self.rounds_validation_label.clear()
+        except ValueError as exc:
+            self.rounds_validation_label.setText(str(exc))
     
     def _create_explosion_thresholds_group(self):
         """创建爆炸性评估阈值配置组"""
@@ -532,11 +584,13 @@ class ConfigPage(QWidget):
         
         row += 1
         # 触发延时
-        layout.addWidget(QLabel("触发延时(秒):"), row, 0)
+        layout.addWidget(QLabel("历史触发延时（未启用）:"), row, 0)
         delay_spin = QDoubleSpinBox()
         delay_spin.setRange(0.0, 5.0)
         delay_spin.setSingleStep(0.1)
         delay_spin.setValue(float(camera_config['trigger_delay']))
+        delay_spin.setEnabled(False)
+        delay_spin.setToolTip("此历史参数暂不生效。拍摄随喷吹触发，精确同步需现场确认。")
         self.config_widgets['camera_trigger_delay'] = delay_spin
         layout.addWidget(delay_spin, row, 1)
         
@@ -736,16 +790,15 @@ class ConfigPage(QWidget):
         
         return scroll
     
-    @classmethod
-    def _update_dict_in_place(cls, target: dict, source: dict):
-        """用 source 的内容递归更新 target，但保留 target 及其嵌套字典的对象身份"""
-        for key in list(target.keys()):
+    @staticmethod
+    def _replace_config_in_place(target, source):
+        """Keep references held by controllers and nested UI components alive."""
+        for key in list(target):
             if key not in source:
                 del target[key]
         for key, value in source.items():
-            current = target.get(key)
-            if isinstance(current, dict) and isinstance(value, dict):
-                cls._update_dict_in_place(current, value)
+            if isinstance(value, dict) and isinstance(target.get(key), dict):
+                ConfigPage._replace_config_in_place(target[key], value)
             else:
                 target[key] = value
 
@@ -763,11 +816,12 @@ class ConfigPage(QWidget):
             try:
                 # 重新加载实验配置文件
                 with open(self.config_path, 'r', encoding='utf-8') as f:
-                    fresh_config = yaml.safe_load(f) or {}
-                # 原地（递归）更新：实验页面/控制器持有的是 explosion_experiment、
-                # ignition_experiment、ui 等子字典的引用，若替换这些对象，
-                # 之后的"应用配置"会改到一个无人读取的字典
-                self._update_dict_in_place(self.config, fresh_config)
+                    loaded = yaml.safe_load(f)
+                if not isinstance(loaded, dict) or not isinstance(loaded.get('ui'), dict):
+                    raise ValueError("配置必须包含 ui 字典")
+                self._replace_config_in_place(self.config, loaded)
+                if self.ui_config is not self.config['ui']:
+                    self._replace_config_in_place(self.ui_config, loaded['ui'])
                 
                 # 重新加载火焰分析器配置
                 self.flame_analyzer_config = self._load_flame_analyzer_config()
@@ -876,8 +930,7 @@ class ConfigPage(QWidget):
         
         # 实验轮次
         test_rounds = self.config['explosion_experiment']['test-rounds']
-        self.config_widgets['test_max_rounds'].setValue(test_rounds['max-rounds'])
-        self.config_widgets['test_phase_rounds'].setValue(test_rounds['phase-rounds'])
+        self._load_round_controls(test_rounds)
         
         # 爆炸性评估阈值
         thresholds = self.config['explosion_experiment']['explosion-thresholds']
@@ -915,6 +968,8 @@ class ConfigPage(QWidget):
     
     def _update_config_from_widgets(self):
         """从控件更新配置"""
+        # Reject before mutating the shared configuration or opening its file.
+        self._validate_round_controls()
         # 着火点串口
         self.config['ignition_experiment']['serial']['port'] = self.config_widgets['ignition_serial_port'].text()
         self.config['ignition_experiment']['serial']['baudrate'] = self.config_widgets['ignition_serial_baudrate'].value()
@@ -1022,4 +1077,3 @@ class ConfigPage(QWidget):
                 '警告',
                 f'保存火焰分析器配置失败: {e}\n配置将在应用时生效，但不会保存到文件。'
             )
-

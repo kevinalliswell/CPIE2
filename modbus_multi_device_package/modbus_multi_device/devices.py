@@ -8,8 +8,9 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 from pymodbus.client import ModbusSerialClient
-from pymodbus.exceptions import ModbusException
+from pymodbus.exceptions import ModbusException, ModbusIOException
 import time
+import threading
 
 
 class BaseDevice(ABC):
@@ -33,6 +34,22 @@ class BaseDevice(ABC):
         self.error_count = 0
         self.last_read_time = None
         self.last_data = None
+        self.poll_interval = float(kwargs.get('poll_interval', 1.0))
+        self.io_lock = kwargs.get('io_lock') or threading.RLock()
+        self._activity_event = kwargs.get('activity_event')
+
+    def _request(self, method, *args, **kwargs):
+        # All devices on the serial bus share this lock.
+        with self.io_lock:
+            if self._activity_event is not None and method.startswith('write_'):
+                # A timed-out write may still have changed the physical output.
+                self._activity_event.set()
+            result = getattr(self.client, method)(*args, **kwargs)
+            if (self._activity_event is not None and result is not None
+                    and not isinstance(result, ModbusIOException)):
+                # A partial read or protocol exception still proves device contact.
+                self._activity_event.set()
+            return result
     
     @abstractmethod
     def read_data(self) -> Optional[Dict[str, Any]]:
@@ -71,13 +88,13 @@ class PressureSensorDevice(BaseDevice):
         """初始化设备信息"""
         try:
             # 读取单位和小数点
-            result = self.client.read_holding_registers(
-                address=0x000C, count=1, device_id=self.address)
+            result = self._request("read_holding_registers",
+                address=0x000C, count=1, slave=self.address)
             if not result.isError():
                 self.current_unit = result.registers[0]
             
-            result = self.client.read_holding_registers(
-                address=0x0001, count=1, device_id=self.address)
+            result = self._request("read_holding_registers",
+                address=0x0001, count=1, slave=self.address)
             if not result.isError():
                 self.decimal_point = result.registers[0]
         except Exception:
@@ -87,8 +104,8 @@ class PressureSensorDevice(BaseDevice):
         """读取压力数据"""
         try:
             # 读取PV和NDOT
-            result = self.client.read_holding_registers(
-                address=0x0000, count=2, device_id=self.address)
+            result = self._request("read_holding_registers",
+                address=0x0000, count=2, slave=self.address)
             
             if result.isError():
                 self.last_error = "读取失败"
@@ -147,8 +164,8 @@ class PressureSensorDevice(BaseDevice):
                             hysteresis, self.decimal_point or 0)
                         values.append(hysteresis_raw)
                     
-                    result = self.client.write_registers(
-                        address=0x0002, values=values, device_id=self.address)
+                    result = self._request("write_registers",
+                        address=0x0002, values=values, slave=self.address)
                     
                     return not result.isError()
             
@@ -167,8 +184,8 @@ class PressureSensorDevice(BaseDevice):
                             hysteresis, self.decimal_point or 0)
                         values.append(hysteresis_raw)
                     
-                    result = self.client.write_registers(
-                        address=0x0004, values=values, device_id=self.address)
+                    result = self._request("write_registers",
+                        address=0x0004, values=values, slave=self.address)
                     
                     return not result.isError()
             
@@ -217,12 +234,15 @@ class RelayControllerDevice(BaseDevice):
         try:
             states = {}
             for addr in [0x41, 0x42, 0x43, 0x44]:
-                result = self.client.read_coils(
-                    address=addr, count=1, device_id=self.address)
+                result = self._request("read_coils",
+                    address=addr, count=1, slave=self.address)
                 
-                if not result.isError():
-                    states[f'relay_{addr-0x40}'] = result.bits[0]
-                    self.relay_states[addr] = result.bits[0]
+                if result.isError() or not result.bits:
+                    self.last_error = f'继电器 {addr - 0x40} 状态读取失败'
+                    self.error_count += 1
+                    return None
+                states[f'relay_{addr-0x40}'] = result.bits[0]
+                self.relay_states[addr] = result.bits[0]
             
             data = {
                 'device': self.name,
@@ -259,8 +279,8 @@ class RelayControllerDevice(BaseDevice):
                 
                 if relay_num and 1 <= relay_num <= 4:
                     addr = 0x40 + relay_num
-                    result = self.client.write_coil(
-                        address=addr, value=state, device_id=self.address)
+                    result = self._request("write_coil",
+                        address=addr, value=state, slave=self.address)
                     
                     if not result.isError():
                         self.relay_states[addr] = state
@@ -273,8 +293,8 @@ class RelayControllerDevice(BaseDevice):
                     success = True
                     for i, state in enumerate(states):
                         addr = 0x41 + i
-                        result = self.client.write_coil(
-                            address=addr, value=state, device_id=self.address)
+                        result = self._request("write_coil",
+                            address=addr, value=state, slave=self.address)
                         if result.isError():
                             success = False
                         else:
@@ -303,8 +323,8 @@ class TemperatureSensorDevice(BaseDevice):
         """读取温度数据"""
         try:
             # 读取所有通道
-            result = self.client.read_input_registers(
-                address=0x0000, count=self.num_channels, device_id=self.address)
+            result = self._request("read_input_registers",
+                address=0x0000, count=self.num_channels, slave=self.address)
             
             if result.isError():
                 self.last_error = "读取失败"
@@ -365,8 +385,8 @@ class YudianControllerDevice(BaseDevice):
     def _init_decimal_point(self):
         """初始化小数点"""
         try:
-            result = self.client.read_holding_registers(
-                address=0x0C, count=1, device_id=self.address)
+            result = self._request("read_holding_registers",
+                address=0x0C, count=1, slave=self.address)
             if not result.isError():
                 value = result.registers[0]
                 if value >= 128:
@@ -382,8 +402,8 @@ class YudianControllerDevice(BaseDevice):
         """读取测量值、给定值和输出值"""
         try:
             # 读取PV, SV, MV
-            result = self.client.read_holding_registers(
-                address=0x4A, count=3, device_id=self.address)
+            result = self._request("read_holding_registers",
+                address=0x4A, count=3, slave=self.address)
             
             if result.isError():
                 self.last_error = "读取失败"
@@ -441,8 +461,8 @@ class YudianControllerDevice(BaseDevice):
                 if int_value < 0:
                     int_value = 65536 + int_value
                 
-                result = self.client.write_register(
-                    address=0x00, value=int_value, device_id=self.address)
+                result = self._request("write_register",
+                    address=0x00, value=int_value, slave=self.address)
                 
                 if result.isError():
                     return False
@@ -451,9 +471,9 @@ class YudianControllerDevice(BaseDevice):
                 status_map = {'run': 0, 'StoP': 1, 'HoLd': 2}
                 status = control_data['set_run_status']['status']
                 if status in status_map:
-                    result = self.client.write_register(
+                    result = self._request("write_register",
                         address=0x1B, value=status_map[status], 
-                        device_id=self.address)
+                        slave=self.address)
                     
                     if result.isError():
                         return False
@@ -463,23 +483,23 @@ class YudianControllerDevice(BaseDevice):
                 
                 if 'P' in pid:
                     p_value = int(self._convert_value(pid['P'], is_write=True))
-                    self.client.write_register(
-                        address=0x07, value=p_value, device_id=self.address)
+                    self._request("write_register",
+                        address=0x07, value=p_value, slave=self.address)
                 
                 if 'I' in pid:
-                    self.client.write_register(
-                        address=0x08, value=int(pid['I']), device_id=self.address)
+                    self._request("write_register",
+                        address=0x08, value=int(pid['I']), slave=self.address)
                 
                 if 'D' in pid:
-                    self.client.write_register(
-                        address=0x09, value=int(pid['D']), device_id=self.address)
+                    self._request("write_register",
+                        address=0x09, value=int(pid['D']), slave=self.address)
             
             if 'set_program_segments' in control_data:
                 segments = control_data['set_program_segments']['segments']
                 # 1. 设置程序段数(Pno)到地址0x2B
                 seg_count = len(segments)
-                result = self.client.write_register(
-                    address=0x2B, value=seg_count, device_id=self.address)
+                result = self._request("write_register",
+                    address=0x2B, value=seg_count, slave=self.address)
                 
                 if result.isError():
                     print(f"✗ 写入程序段数量失败: address=0x2B, value={seg_count}")
@@ -489,8 +509,8 @@ class YudianControllerDevice(BaseDevice):
                 time.sleep(0.1)
                 
                 # 验证程序段数量
-                verify_result = self.client.read_holding_registers(
-                    address=0x2B, count=1, device_id=self.address)
+                verify_result = self._request("read_holding_registers",
+                    address=0x2B, count=1, slave=self.address)
                 if not verify_result.isError():
                     read_count = verify_result.registers[0]
                     if read_count == seg_count:
@@ -512,8 +532,8 @@ class YudianControllerDevice(BaseDevice):
                     t_addr = sp_addr + 1
                     
                     # 写入温度
-                    result = self.client.write_register(
-                        sp_addr, sp_value, device_id=self.address)
+                    result = self._request("write_register",
+                        sp_addr, sp_value, slave=self.address)
                     if result.isError():
                         print(f"✗ 写入程序段{i+1}温度失败: address=0x{sp_addr:02X}, value={sp_value} ({sp}°C)")
                         return False
@@ -521,8 +541,8 @@ class YudianControllerDevice(BaseDevice):
                     time.sleep(0.02)
                     
                     # 验证温度
-                    verify_sp = self.client.read_holding_registers(
-                        address=sp_addr, count=1, device_id=self.address)
+                    verify_sp = self._request("read_holding_registers",
+                        address=sp_addr, count=1, slave=self.address)
                     if not verify_sp.isError():
                         read_sp = verify_sp.registers[0]
                         if read_sp >= 32768:
@@ -537,8 +557,8 @@ class YudianControllerDevice(BaseDevice):
                     
                     # 写入时间
                     t_value = int(t) if t >= 0 else 65536 + int(t)
-                    result = self.client.write_register(
-                        t_addr, t_value, device_id=self.address)
+                    result = self._request("write_register",
+                        t_addr, t_value, slave=self.address)
                     if result.isError():
                         print(f"✗ 写入程序段{i+1}时间失败: address=0x{t_addr:02X}, value={t_value} ({t}分钟)")
                         return False
@@ -546,8 +566,8 @@ class YudianControllerDevice(BaseDevice):
                     time.sleep(0.02)
                     
                     # 验证时间
-                    verify_t = self.client.read_holding_registers(
-                        address=t_addr, count=1, device_id=self.address)
+                    verify_t = self._request("read_holding_registers",
+                        address=t_addr, count=1, slave=self.address)
                     if not verify_t.isError():
                         read_t = verify_t.registers[0]
                         if read_t >= 32768:

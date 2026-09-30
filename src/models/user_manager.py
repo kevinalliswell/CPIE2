@@ -34,7 +34,7 @@ class UserManager:
     
     # 单例模式：当前登录用户
     _current_user: Optional[User] = None
-    
+
     # 首次运行时创建的默认账号 (用户名, 初始口令, 角色)；口令以哈希形式入库
     DEFAULT_USERS = (
         ('admin', 'admin123', 'admin'),
@@ -164,7 +164,7 @@ class UserManager:
             self.logger.error(f"✗ 写入口令失败: {e}")
             self.conn.rollback()
             return False
-    
+
     def get_current_user(self) -> Optional[User]:
         """
         获取当前登录用户

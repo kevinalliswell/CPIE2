@@ -33,7 +33,7 @@ class CameraPanelWidget(QGroupBox):
         layout = QGridLayout(self)
         
         # 第1行第1列：初始化相机按钮
-        btn_init_camera = QPushButton("初始化相机")
+        self.btn_init_camera = btn_init_camera = QPushButton("初始化相机")
         btn_init_camera.setObjectName("primaryButton")
         btn_init_camera.clicked.connect(self.init_camera_clicked.emit)
         layout.addWidget(btn_init_camera, 0, 0)
@@ -64,7 +64,8 @@ class CameraPanelWidget(QGroupBox):
         self.btn_analyze.setObjectName("warningButton")
         self.btn_analyze.clicked.connect(self.analyze_clicked.emit)
         self.btn_analyze.setEnabled(False)
-        # layout.addWidget(self.btn_analyze) 暂时隐藏此按钮
+        self.btn_analyze.setText("分析 / 重试本轮")
+        layout.addWidget(self.btn_analyze, 3, 0, 1, 2)
 
         # 第3行：相机状态（跨2列）
         self.lbl_camera_status = QLabel("相机状态: 未初始化")
@@ -87,4 +88,3 @@ class CameraPanelWidget(QGroupBox):
         self.btn_capture.setEnabled(enabled)
         self.btn_analyze.setEnabled(enabled)
         self.btn_calibrate.setEnabled(enabled)
-

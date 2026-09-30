@@ -10,22 +10,21 @@ authors = [
     {name = "Kevin"}
 ]
 readme = "readme.md"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 keywords = ["modbus", "serial", "communication", "multi-device", "data-acquisition"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
     "Operating System :: OS Independent",
 ]
 
 dependencies = [
     "pyserial>=3.5,<4.0",
-    # devices.py 使用 device_id= 关键字参数（pymodbus 3.10.0 起引入，之前版本为 slave=）
-    "pymodbus>=3.10.0,<4.0.0",
+    "pymodbus==3.8.6",
     "PyYAML>=6.0,<7.0",
 ]
 

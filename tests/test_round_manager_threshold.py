@@ -2,8 +2,10 @@
 RoundManager 阶段判定阈值测试
 
 test-rounds.phase-decision-threshold 决定"前 N 轮平均火焰长度是否需要进入第二阶段"，
-未配置时沿用 explosion-thresholds.no-explosion。
+未配置时使用独立的阶段阈值 20 mm；非法配置必须拒绝。
 """
+
+import pytest
 
 from services.explosion.round_manager import RoundManager
 
@@ -24,15 +26,16 @@ def test_phase_threshold_read_from_config():
     assert manager.threshold_no_explosion == 25.0
 
 
-def test_phase_threshold_falls_back_to_no_explosion_threshold():
+def test_phase_threshold_default_is_independent_and_invalid_values_are_rejected():
     config = {
         "test-rounds": {"max-rounds": 10, "phase-rounds": 5},
         "explosion-thresholds": {"no-explosion": 25.0},
     }
-    assert RoundManager(config).phase_decision_threshold == 25.0
+    assert RoundManager(config).phase_decision_threshold == 20.0
 
     config["test-rounds"]["phase-decision-threshold"] = "not-a-number"
-    assert RoundManager(config).phase_decision_threshold == 25.0
+    with pytest.raises(ValueError):
+        RoundManager(config)
 
 
 def test_should_continue_phase2_uses_phase_threshold():
@@ -41,7 +44,7 @@ def test_should_continue_phase2_uses_phase_threshold():
     # 平均 22 mm：高于 20 mm 判定阈值（但低于 25 mm 无爆炸性上限）→ 不需要第二阶段
     need_phase2, reason = manager.should_continue_phase2(_records(22, 22, 22, 22, 22))
     assert need_phase2 is False
-    assert "20" in reason
+    assert manager.is_complete(_records(22, 22, 22, 22, 22))
 
     need_phase2, reason = manager.should_continue_phase2(_records(10, 15, 20, 25, 25))
     assert need_phase2 is True
@@ -60,7 +63,7 @@ def test_get_next_action_uses_phase_threshold():
     action = manager.get_next_action(5, _records(10, 10, 10, 10, 10))
     assert action["action"] == "phase2"
     assert action["meets_standard"] is False
-    assert "20mm" in action["message"]
+    assert "20.0mm" in action["message"]
 
     assert manager.get_next_action(3, _records(10, 10, 10))["action"] == "continue"
     assert manager.get_next_action(10, _records(*([10] * 10)))["action"] == "complete"

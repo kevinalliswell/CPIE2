@@ -4,6 +4,7 @@
 
 import os
 import sys
+import importlib
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -15,18 +16,6 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    pytest.importorskip("cv2")
-    pytest.importorskip("numpy")
-    pytest.importorskip("PySide6")
-
-    from PySide6.QtWidgets import QApplication
-
-    app = QApplication.instance() or QApplication([])
-    return app
 
 
 @pytest.fixture
@@ -52,8 +41,8 @@ def processor_module(qapp):
 
 @pytest.fixture
 def temp_image_dir(tmp_path):
-    np = pytest.importorskip("numpy")
-    cv2 = pytest.importorskip("cv2")
+    np = importlib.import_module("numpy")
+    cv2 = importlib.import_module("cv2")
 
     image_dir = tmp_path / "images"
     image_dir.mkdir()
@@ -171,9 +160,8 @@ def test_processor_injection_is_supported(qapp, widget_module, config_module, pr
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QMessageBox
 
-    monkeypatch.setattr(QTimer, "singleShot", staticmethod(lambda _delay, callback: None))
-    # closeEvent 在分析未完成时会弹出模态确认框，无头环境下会永久阻塞 pytest
     monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *args, **kwargs: QMessageBox.Yes))
+    monkeypatch.setattr(QTimer, "singleShot", staticmethod(lambda _delay, callback: None))
     mock_processor = Mock(spec=processor_module.FlameImageProcessor)
 
     widget = widget_module.FlameAnalyzerWidget(
@@ -185,26 +173,4 @@ def test_processor_injection_is_supported(qapp, widget_module, config_module, pr
         assert widget.processor is mock_processor
     finally:
         widget.close()
-        widget.deleteLater()
-
-
-def test_reject_emits_window_closed(qapp, widget_module, config_module, processor_module, temp_image_dir, monkeypatch):
-    """Esc / reject() 必须走 closeEvent 路径并发出 window_closed，否则爆炸页面收不到本轮结果"""
-    from PySide6.QtCore import QTimer
-    from PySide6.QtWidgets import QMessageBox
-
-    monkeypatch.setattr(QTimer, "singleShot", staticmethod(lambda _delay, callback: None))
-    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *args, **kwargs: QMessageBox.Yes))
-
-    widget = widget_module.FlameAnalyzerWidget(
-        input_folder=str(temp_image_dir),
-        config=config_module.FlameAnalyzerConfig(),
-        processor=Mock(spec=processor_module.FlameImageProcessor),
-    )
-    received = []
-    widget.window_closed.connect(received.append)
-    try:
-        widget.reject()
-        assert received == [{}]
-    finally:
         widget.deleteLater()

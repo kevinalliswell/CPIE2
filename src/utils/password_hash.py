@@ -49,8 +49,13 @@ def verify_password(password: str, stored: str) -> bool:
     if is_hashed(stored):
         try:
             _, iterations, salt_b64, digest_b64 = stored.split("$", 3)
-            salt = base64.b64decode(salt_b64)
-            expected = base64.b64decode(digest_b64)
+            iterations = int(iterations)
+            if not 1 <= iterations <= 1_000_000:
+                return False
+            salt = base64.b64decode(salt_b64, validate=True)
+            expected = base64.b64decode(digest_b64, validate=True)
+            if len(salt) != 16 or len(expected) != 32:
+                return False
             actual = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, int(iterations))
         except (ValueError, TypeError):
             return False

@@ -4,8 +4,8 @@
 # 串口通信
 pyserial>=3.5,<4.0
 
-# Modbus协议（devices.py 使用 device_id= 参数，需 pymodbus 3.10.0+）
-pymodbus>=3.10.0,<4.0.0
+# Modbus协议
+pymodbus==3.8.6
 
 # YAML配置文件
 PyYAML>=6.0,<7.0

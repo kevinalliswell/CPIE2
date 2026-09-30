@@ -10,17 +10,23 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from models.explosion_database import ExplosionDatabase
+from utils.path_manager import PathManager
 
 
-def test_session_logic(tmp_path):
+def test_session_logic():
     """测试会话逻辑修复"""
     print("=" * 60)
     print("爆炸性实验会话逻辑测试")
     print("=" * 60)
-
-    # 使用临时目录中的测试数据库，避免写入真实的 data/ 目录
-    test_db_path = str(tmp_path / "test_explosion_logic.db")
-
+    
+    # 使用测试数据库
+    test_db_path = PathManager.get_data_path("test_explosion_logic.db")
+    
+    # 删除旧的测试数据库
+    if os.path.exists(test_db_path):
+        os.remove(test_db_path)
+        print(f"✓ 已删除旧测试数据库")
+    
     db = ExplosionDatabase(test_db_path)
     
     # 测试1: 创建会话
@@ -144,6 +150,7 @@ def test_session_logic(tmp_path):
     print("\n" + "=" * 60)
     print("✅ 所有测试通过！")
     print("=" * 60)
+    
 
 
 def test_button_state_logic():

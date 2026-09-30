@@ -777,7 +777,7 @@ class GenerateReportDialog(QDialog):
         layout.addWidget(section_title)
         
         # 结论内容
-        conclusion = self.exp_data.get('conclusion', '实验数据符合标准要求。')
+        conclusion = self.exp_data.get('conclusion') or '实验结论未填写，待确认。'
         conclusion_label = QLabel(conclusion)
         conclusion_label.setWordWrap(True)
         conclusion_label.setStyleSheet("color: #fff; font-size: 12px; padding-left: 10px; line-height: 1.5;")
@@ -1081,7 +1081,7 @@ class GenerateReportDialog(QDialog):
             # 实验结论
             section_num = "六" if self.exp_type == "ignition" else "五"
             doc.add_heading(f'{section_num}、实验结论', 1)
-            conclusion = self.exp_data.get('conclusion', '实验数据符合标准要求。')
+            conclusion = self.exp_data.get('conclusion') or '实验结论未填写，待确认。'
             doc.add_paragraph(conclusion)
             
             # 备注
@@ -1427,7 +1427,7 @@ class GenerateReportDialog(QDialog):
             section_num = "六" if self.exp_type == "ignition" else "五"
             story.append(Paragraph(f'{section_num}、实验结论', heading2_style))
             story.append(Spacer(1, 0.3*cm))
-            conclusion = self.exp_data.get('conclusion', '实验数据符合标准要求。')
+            conclusion = self.exp_data.get('conclusion') or '实验结论未填写，待确认。'
             story.append(Paragraph(escape(str(conclusion)).replace('\n', '<br/>'), normal_style))
             story.append(Spacer(1, 0.5*cm))
             
